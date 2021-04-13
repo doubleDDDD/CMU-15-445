@@ -71,6 +71,7 @@ endif()
 add_definitions(-DSQLITE_THREADSAFE=2)
 
 # sqlite3 as library
+# 依赖于src/sqlit下的c代码 生成动态库 libsqlite3.so
 add_library(sqlite3 sqlite/sqlite3.c include/sqlite/sqlite3ext.h include/sqlite/sqlite3.h)
 if(IS_LINUX)
     if(BUILD_SHARED_LIBS)
@@ -82,8 +83,9 @@ endif()
 
 # shell app
 if(BUILD_SHELL)
+    # message(STATUS "it is ${BUILD_SHELL}")
     add_executable(sqlite3_shell sqlite/shell.c)
-    target_link_libraries(sqlite3_shell sqlite3)
+    target_link_libraries(sqlite3_shell sqlite3)  # 在sqlite3_shell中链接模块 libsqlite3.so
     set_target_properties(sqlite3_shell PROPERTIES OUTPUT_NAME sqlite3)
 
     if(IS_LINUX)
@@ -97,4 +99,7 @@ endif()
 file(GLOB_RECURSE srcs ${PROJECT_SOURCE_DIR}/src/*/*.cpp)
 file(GLOB sqlite_srcs ${PROJECT_SOURCE_DIR}/src/sqlite/*.c)
 list(REMOVE_ITEM srcs ${sqlite_srcs})
+# message(STATUS "it is ${srcs}")
+# 依赖于src下除sqlit外的所有cpp 代码生成动态库 libvtable.so 这个实际上就相当于是数据库的内核
+# sqlit起来之后，加载libvtable.so，之后的数据库操作就会由libvtable.so来接管，这个就可以学习数据库的这个核心思想了
 add_library(vtable SHARED ${srcs})

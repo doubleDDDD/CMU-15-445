@@ -81,6 +81,12 @@ private:
                      BufferPoolManager *buffer_pool_manager);
 
   page_id_t next_page_id_;
+  /** 
+   * b+ tree 叶子节点所在的页 
+   * put a variable-sized array at the end of a structure 
+   * struct array { size_t size; int a[];}
+   * struct array *array = malloc(sizeof (struct array) + size * sizeof (int))
+   */
   MappingType array[0];
 };
 } // namespace cmudb

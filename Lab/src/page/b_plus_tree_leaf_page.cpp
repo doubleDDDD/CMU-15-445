@@ -125,7 +125,7 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
   // 要插入的值当前最小的还小
   else if (comparator(key, array[0].first) < 0)
   {
-    memmove(array + 1, array, static_cast<size_t>(GetSize() * sizeof(MappingType)));
+    memmove((void *)(array + 1), (void *)array, static_cast<size_t>(GetSize() * sizeof(MappingType)));
     array[0] = {key, value};
   }
   else
@@ -148,7 +148,7 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
         assert(0);
       }
     }
-    memmove(array + high + 1, array + high,
+    memmove((void *)(array + high + 1), (void *)(array + high),
             static_cast<size_t>((GetSize() - high) * sizeof(MappingType)));
     array[high] = {key, value};
   }
@@ -263,7 +263,7 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
     else
     {
       // 删除节点
-      memmove(array + mid, array + mid + 1,
+      memmove((void *)(array + mid), (void *)(array + mid + 1),
               static_cast<size_t>((GetSize() - mid - 1) * sizeof(MappingType)));
       IncreaseSize(-1);
       break;
@@ -364,7 +364,7 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
                   BufferPoolManager *buffer_pool_manager)
 {
   assert(GetSize() + 1 < GetMaxSize());
-  memmove(array + 1, array, GetSize() * sizeof(MappingType));
+  memmove((void *)(array + 1), (void *)array, GetSize() * sizeof(MappingType));
   IncreaseSize(1);
   array[0] = item;
 

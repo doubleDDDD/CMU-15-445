@@ -4,13 +4,13 @@ if (POLICY CMP0042)
 endif ()
 
 # ---[ SQLite_VTable project
-project(SQLite_VTable CXX C)
+project(SQLite_VTable CXX C)  # 最终的项目名称 SQLite_VTable
 
 # ---[ CTest
-include(CTest)
+include(CTest)  # for test
 
 # ---[ Dependencies
-find_package(Threads REQUIRED)
+find_package(Threads REQUIRED)  # Finds and loads settings from an external project
 
 # ---[ C++1y Flags
 include(CheckCXXCompilerFlag)
@@ -47,5 +47,6 @@ include_directories(${SQLITE_VTABLE_SRC_INCLUDE_DIR} ${SQLITE_VTABLE_TEST_INCLUD
 include_directories(BEFORE src) # This is needed for gtest.
 
 # ---[ Subdirectories
+# 这个就说明 src与test下面存在子 CMakeLists.txt
 add_subdirectory(src)
 add_subdirectory(test)
