@@ -22,15 +22,17 @@ BufferPoolManager::BufferPoolManager(size_t pool_size,
 	: pool_size_(pool_size), disk_manager_(disk_manager),
 	  log_manager_(log_manager)
 {
-
+	// BUFFER_POOL_SIZE is 10 = pool_size_
 	// a consecutive memory space for buffer pool
-	pages_ = new Page[pool_size_];
+	// 下面的都是类内的对象
+	pages_ = new Page[pool_size_];  /* 分配连续的内存空间，每一个page有4K */
 	free_list_ = new std::list<Page *>;
 
 	replacer_ = new LRUReplacer<Page *>;
 	page_table_ = new ExtendibleHash<page_id_t, Page *>(BUCKET_SIZE);
 
 	// put all the pages into free list
+	// page由一个list管理
 	for (size_t i = 0; i < pool_size_; ++i)
 	{
 		free_list_->push_back(&pages_[i]);

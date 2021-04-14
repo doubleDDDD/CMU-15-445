@@ -47,11 +47,11 @@ public:
 
 private:
   // method used by buffer pool manager
-  inline void ResetMemory() { memset(data_, 0, PAGE_SIZE); }
+  inline void ResetMemory() { memset(data_, 0, PAGE_SIZE); }  // 清0
 
   // members
-  char data_[PAGE_SIZE]; // actual data
-  page_id_t page_id_ = INVALID_PAGE_ID;
+  char data_[PAGE_SIZE]; // actual data，代表内存中的一个页
+  page_id_t page_id_ = INVALID_PAGE_ID;  // id
   int pin_count_ = 0;
   bool is_dirty_ = false;
   RWMutex rwlatch_;

@@ -348,6 +348,7 @@ sqlite3_module VtableModule = {
     0,              /* xRollbackTo */
 };
 
+/* start in extension */
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
@@ -366,7 +367,6 @@ __declspec(dllexport)
   if (!is_file_exist) {
     page_id_t header_page_id;
     storage_engine_->buffer_pool_manager_->NewPage(header_page_id);
-
     assert(header_page_id == HEADER_PAGE_ID);
     storage_engine_->buffer_pool_manager_->UnpinPage(header_page_id, true);
   }
