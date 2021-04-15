@@ -8,6 +8,10 @@
 
 namespace cmudb {
 
+/** 
+  自行实现的hash table 
+  存虚函数，所以只能是个抽象类
+*/
 template <typename K, typename V> class HashTable {
 public:
   HashTable() {}

@@ -49,7 +49,7 @@ private:
   // method used by buffer pool manager
   inline void ResetMemory() { memset(data_, 0, PAGE_SIZE); }  // 清0
 
-  // members
+  // members, page的元数据
   char data_[PAGE_SIZE]; // actual data，代表内存中的一个页
   page_id_t page_id_ = INVALID_PAGE_ID;  // id
   int pin_count_ = 0;

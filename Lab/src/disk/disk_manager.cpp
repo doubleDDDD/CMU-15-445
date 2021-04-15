@@ -75,12 +75,16 @@ void DiskManager::WritePage(page_id_t page_id, const char *page_data) {
     LOG_DEBUG("I/O error while writing");
     return;
   }
-  // needs to flush to keep disk file in sync
+  /**
+   * @brief needs to flush to keep disk file in sync
+    写db是需要自己主动刷磁盘的
+   */
   db_io_.flush();
 }
 
 /**
  * Read the contents of the specified page into the given memory area
+ * 读磁盘的一个page到指定的内存区域
  */
 void DiskManager::ReadPage(page_id_t page_id, char *page_data) {
   int offset = page_id*PAGE_SIZE;
@@ -90,10 +94,11 @@ void DiskManager::ReadPage(page_id_t page_id, char *page_data) {
     // std::cerr << "I/O error while reading" << std::endl;
   } else {
     // set read cursor to offset
+    // std::fstream db_io_
     db_io_.seekp(offset);
     db_io_.read(page_data, PAGE_SIZE);
     // if file ends before reading PAGE_SIZE
-    int read_count = db_io_.gcount();
+    int read_count = db_io_.gcount();  /* Get character count */
     if (read_count < PAGE_SIZE) {
       LOG_DEBUG("Read less than a page");
       // std::cerr << "Read less than a page" << std::endl;

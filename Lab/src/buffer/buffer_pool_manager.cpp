@@ -15,6 +15,7 @@ namespace cmudb
  * BufferPoolManager Constructor
  * When log_manager is nullptr, logging is disabled (for test purpose)
  * WARNING: Do Not Edit This Function
+ * 内存中的page buff由一个list与一个可扩展的hash表来共同管理
  */
 BufferPoolManager::BufferPoolManager(size_t pool_size,
 									 DiskManager *disk_manager,
@@ -22,14 +23,18 @@ BufferPoolManager::BufferPoolManager(size_t pool_size,
 	: pool_size_(pool_size), disk_manager_(disk_manager),
 	  log_manager_(log_manager)
 {
-	// BUFFER_POOL_SIZE is 10 = pool_size_
-	// a consecutive memory space for buffer pool
-	// 下面的都是类内的对象
+	/**
+	 * @brief BUFFER_POOL_SIZE is 10 = pool_size_
+		a consecutive memory space for buffer pool
+		下面的都是类内的对象
+		所以内存池是在最开始就分配好的 目前是40KB的bool
+	 */ 
 	pages_ = new Page[pool_size_];  /* 分配连续的内存空间，每一个page有4K */
 	free_list_ = new std::list<Page *>;
 
 	replacer_ = new LRUReplacer<Page *>;
-	page_table_ = new ExtendibleHash<page_id_t, Page *>(BUCKET_SIZE);
+	// 可扩展的hash表, 理解为 page id 与 page 的 kv
+	page_table_ = new ExtendibleHash<page_id_t, Page *>(BUCKET_SIZE);  // BUCKET_SIZE is 50
 
 	// put all the pages into free list
 	// page由一个list管理
@@ -64,13 +69,16 @@ BufferPoolManager::~BufferPoolManager()
  */
 Page *BufferPoolManager::FetchPage(page_id_t page_id)
 {
+	/**
+	 * @brief page_table_就是这个hash表
+	 */
 	assert(page_id != INVALID_PAGE_ID);
 	std::lock_guard<std::mutex> lock(mutex_);
 
 	Page *res = nullptr;
 	if (page_table_->Find(page_id, res))
 	{
-		// mark the Page as pinned
+		// mark the Page as pinned, 相当于引用+1
 		++res->pin_count_;
 		// remove its entry from LRUReplacer
 		replacer_->Erase(res);
@@ -78,13 +86,16 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id)
 	}
 	else
 	{
+		/* id没有对应的page被使用 */
 		if (!free_list_->empty())
 		{
-			res = free_list_->front();
-			free_list_->pop_front();
+			/* list容器中有元素，说明还有空闲的page */
+			res = free_list_->front();  /* 第一个元素的ref */
+			free_list_->pop_front();  /* 删除容器头部的第一个元素 */
 		}
 		else
 		{
+			/* 没有空页了，需要执行页面替换算法，把一部分数据丢到disk */
 			if (!replacer_->Victim(res))
 			{
 				return nullptr;
@@ -92,15 +103,16 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id)
 		}
 	}
 
-	assert(res->pin_count_ == 0);
+	assert(res->pin_count_ == 0);  /* free list中的page一定是没有ref的 */
 	if (res->is_dirty_)
 	{
+		/* 脏页写回 */
 		disk_manager_->WritePage(res->page_id_, res->GetData());
 	}
-	// delete the entry for old page.
+	// delete the entry for old page in hash table
 	page_table_->Remove(res->page_id_);
 
-	// insert an entry for the new page.
+	// insert an entry for the new page in hash table
 	page_table_->Insert(page_id, res);
 
 	// initial meta data

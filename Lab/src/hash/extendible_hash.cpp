@@ -17,6 +17,10 @@ template <typename K, typename V>
 ExtendibleHash<K, V>::ExtendibleHash(size_t size)
 : bucket_size_(size), bucket_count_(0),
     pair_count_(0), depth(0) {
+    /**
+     * @brief emplace_back 向vector尾端插入元素，与push_back有所区别，效率更高一些
+     构造函数初始化的时候hash桶的大小是1
+     */
     bucket_.emplace_back(new Bucket(0, 0));
     bucket_count_ = 1;
 }
@@ -25,16 +29,17 @@ ExtendibleHash<K, V>::ExtendibleHash(size_t size)
  * helper function to calculate the hashing address of input key
  * std::hash<>: assumption already has specialization for type K
  * namespace std have standard specializations for basic types.
+ * 返回桶的偏移量，实际上就是hash函数
  */
 template <typename K, typename V>
 size_t ExtendibleHash<K, V>::HashKey(const K &key) {
     return std::hash<K>()(key);
 }
 
-
 /*
  * helper function to return global depth of hash table
  * NOTE: you must implement this function in order to pass test
+ * 返回哈希表当前深度
  */
 template <typename K, typename V>
 int ExtendibleHash<K, V>::GetGlobalDepth() const {
@@ -45,6 +50,7 @@ int ExtendibleHash<K, V>::GetGlobalDepth() const {
 /*
  * helper function to return local depth of one specific bucket
  * NOTE: you must implement this function in order to pass test
+ * 返回给定偏移的局部深度
  */
 template <typename K, typename V>
 int ExtendibleHash<K, V>::GetLocalDepth(int bucket_id) const {
@@ -57,6 +63,7 @@ int ExtendibleHash<K, V>::GetLocalDepth(int bucket_id) const {
 
 /*
  * helper function to return current number of bucket in hash table
+ * 返回桶总数
  */
 template <typename K, typename V>
 int ExtendibleHash<K, V>::GetNumBuckets() const {
@@ -64,9 +71,9 @@ int ExtendibleHash<K, V>::GetNumBuckets() const {
     return bucket_count_;
 }
 
-
 /*
  * lookup function to find value associate with input key
+ * 查找桶里的哈希表是否有该值
  */
 template <typename K, typename V>
 bool ExtendibleHash<K, V>::Find(const K &key, V &value) {
@@ -85,6 +92,7 @@ bool ExtendibleHash<K, V>::Find(const K &key, V &value) {
 /*
  * delete <key,value> entry in hash table
  * Shrink & Combination is not required for this project
+ * 移除元素
  */
 template <typename K, typename V>
 bool ExtendibleHash<K, V>::Remove(const K &key) {
@@ -100,11 +108,11 @@ bool ExtendibleHash<K, V>::Remove(const K &key) {
     return cnt != 0;
 }
 
-
 /*
  * insert <key,value> entry in hash table
  * Split & Redistribute bucket when there is overflow and if necessary increase
  * global depth
+ * 插入元素
  */
 template <typename K, typename V>
 void ExtendibleHash<K, V>::Insert(const K &key, const V &value) {
@@ -116,9 +124,14 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value) {
         bucket_[bucket_id] = std::make_shared<Bucket>(bucket_id, depth);
         ++bucket_count_;
     }
+    /**
+     * @brief 
+     auto可以在声明变量时根据变量初始值的类型自动为此变量选择匹配的类型
+     对于值x=1；即可以声明：int x = 1或long x = 1，也可以直接声明auto x = 1
+     */
     auto bucket = bucket_[bucket_id];
 
-    // 如果该位置有值，则覆盖
+    // 如果该位置有值，则覆盖，相当于update
     if(bucket->items.find(key) != bucket->items.end()) {
         bucket->items[key] = value;
         return;
@@ -128,7 +141,13 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value) {
     bucket->items.insert({key, value});
     ++pair_count_;
 
-    // 需要分裂桶以及重新分配
+    /**
+     * @brief 
+     显然每一个桶的长度不能过长，否则影响效率
+     当桶的长度超过预设的值，这里预设值为50
+     将分裂桶以及rehash
+     需要分裂桶以及重新分配
+     */
     if(bucket->items.size() > bucket_size_) {
         // 先记录旧的下标和全局深度
         auto old_index = bucket->id;
@@ -186,11 +205,20 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value) {
     }
 }
 
-// 分裂新桶
+/**
+ * @brief 分裂新桶
+ * @param  b                desc
+ * @return template <typename K, typename V> @c 
+ */
 template <typename K, typename V>
 std::shared_ptr<typename ExtendibleHash<K, V>::Bucket>
 ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b) {
-    // 先创建一个新桶
+    /**
+     * @brief 
+        先利用make_shared创建一个新桶
+        new bucket的id是0，深度与旧桶一致
+        b代表的是旧桶
+     */
     auto res = std::make_shared<Bucket>(0, b->depth);
     // 注意：这里是while循环
     while(res->items.empty()) {

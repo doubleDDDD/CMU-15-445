@@ -20,11 +20,16 @@
 
 namespace cmudb {
 
-// only support unique key
+/**
+ * @brief hash依赖 std::map<K, V> items;
+ only support unique key
+ */
 template <typename K, typename V>
 class ExtendibleHash : public HashTable<K, V> {
   struct Bucket {
+    /* = default 在写了带参数的构造函数之后依然需要一个默认构造函数 */
     Bucket() = default;
+    /* explicit防止类型转换的构造函数 */
     explicit Bucket(size_t i, int d) : id(i), depth(d) {}
     std::map<K, V> items;          // key-value pairs
     size_t id = 0;                 // id of Bucket

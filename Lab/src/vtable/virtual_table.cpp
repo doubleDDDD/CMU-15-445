@@ -18,14 +18,34 @@ namespace cmudb {
 SQLITE_EXTENSION_INIT1
 
 /* API implementation */
+
+/** 创建虚拟表
+ * @brief 
+ * @param  db               desc 一个db连接的实例
+ * @param  pAux             desc
+ * @param  argc             desc
+ * @param  argv             desc
+ * @param  ppVtab           desc
+ * @param  pzErr            desc
+ * @return int @c 
+ */
 int VtabCreate(sqlite3 *db, void *pAux, int argc, const char *const *argv,
                sqlite3_vtab **ppVtab, char **pzErr) {
+  /**
+   * @brief storage_engine_ is a global var
+    in sqlite3_vtable_init 
+    storage_engine_ = new StorageEngine(db_file_name);
+   */
   BufferPoolManager *buffer_pool_manager =
       storage_engine_->buffer_pool_manager_;
   LockManager *lock_manager = storage_engine_->lock_manager_;
   LogManager *log_manager = storage_engine_->log_manager_;
 
-  // fetch header page from buffer pool
+  /**
+   * @brief fetch header page from buffer pool
+      这里有一个类型转换 page->HeaderPage
+      HeaderPage存放表的元数据
+   */
   HeaderPage *header_page =
       static_cast<HeaderPage *>(buffer_pool_manager->FetchPage(HEADER_PAGE_ID));
 
