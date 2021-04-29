@@ -237,7 +237,6 @@ ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b) {
             }
         }
 
-        // 如果b桶的map为空，说明深度不够，还要进行循环
         if(b->items.empty()) {
             b->items.swap(res->items);
             b->id = res->id;

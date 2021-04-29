@@ -11,22 +11,22 @@ namespace cmudb {
 /**
  * Record related
  */
-bool HeaderPage::InsertRecord(const std::string &name,
-                              const page_id_t root_id) {
-  assert(name.length() < 32);
-  assert(root_id > INVALID_PAGE_ID);
+bool 
+HeaderPage::InsertRecord(const std::string &name, const page_id_t root_id) {
+    assert(name.length() < 32);
+    assert(root_id > INVALID_PAGE_ID);
 
-  int record_num = GetRecordCount();
-  int offset = 4 + record_num*36;
-  // check for duplicate name
-  if (FindRecord(name) != -1)
-    return false;
-  // copy record content
-  memcpy(GetData() + offset, name.c_str(), (name.length() + 1));
-  memcpy((GetData() + offset + 32), &root_id, 4);
+    int record_num = GetRecordCount();
+    int offset = 4 + record_num*36;
+    // check for duplicate name
+    if (FindRecord(name) != -1)
+        return false;
+    // copy record content
+    memcpy(GetData() + offset, name.c_str(), (name.length() + 1));
+    memcpy((GetData() + offset + 32), &root_id, 4);
 
-  SetRecordCount(record_num + 1);
-  return true;
+    SetRecordCount(record_num + 1);
+    return true;
 }
 
 bool HeaderPage::DeleteRecord(const std::string &name) {

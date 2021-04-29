@@ -32,54 +32,54 @@ SQLITE_EXTENSION_INIT1
 int VtabCreate(sqlite3 *db, void *pAux, int argc, const char *const *argv,
                sqlite3_vtab **ppVtab, char **pzErr) {
   /**
-   * @brief storage_engine_ is a global var
-    in sqlite3_vtable_init 
-    storage_engine_ = new StorageEngine(db_file_name);
+   * @brief 
+   * storage_engine_ is a global var
+   * in sqlite3_vtable_init 
+   * storage_engine_ = new StorageEngine(db_file_name);
    */
-  BufferPoolManager *buffer_pool_manager =
-      storage_engine_->buffer_pool_manager_;
-  LockManager *lock_manager = storage_engine_->lock_manager_;
-  LogManager *log_manager = storage_engine_->log_manager_;
+    BufferPoolManager *buffer_pool_manager = storage_engine_->buffer_pool_manager_;
+    LockManager *lock_manager = storage_engine_->lock_manager_;
+    LogManager *log_manager = storage_engine_->log_manager_;
 
-  /**
-   * @brief fetch header page from buffer pool
-      这里有一个类型转换 page->HeaderPage
-      HeaderPage存放表的元数据
-   */
-  HeaderPage *header_page =
-      static_cast<HeaderPage *>(buffer_pool_manager->FetchPage(HEADER_PAGE_ID));
+    /**
+    * @brief fetch header page from buffer pool
+        这里有一个类型转换 page->HeaderPage
+        HeaderPage存放表的元数据
+        这个page已经new过了，所以这里基本是一定可以fetch到page的
+    */
+    HeaderPage *header_page =
+        static_cast<HeaderPage *>(buffer_pool_manager->FetchPage(HEADER_PAGE_ID));
 
-  // the first three parameter:(1) module name (2) database name (3)table name
-  assert(argc >= 4);
-  // parse arg[3](string that defines table schema)
-  std::string schema_string(argv[3]);
-  schema_string = schema_string.substr(1, (schema_string.size() - 2));
-  Schema *schema = ParseCreateStatement(schema_string);
+    // the first three parameter:(1) module name (2) database name (3)table name
+    assert(argc >= 4);
+    // parse arg[3](string that defines table schema)
+    std::string schema_string(argv[3]);
+    schema_string = schema_string.substr(1, (schema_string.size() - 2));
+    Schema *schema = ParseCreateStatement(schema_string);
 
-  // parse arg[4](string that defines table index)
-  Index *index = nullptr;
-  if (argc > 4) {
-    std::string index_string(argv[4]);
-    index_string = index_string.substr(1, (index_string.size() - 2));
-    // create index object, allocate memory space
-    IndexMetadata *index_metadata =
-        ParseIndexStatement(index_string, std::string(argv[2]), schema);
-    index = ConstructIndex(index_metadata, buffer_pool_manager);
-  }
-  // create table object, allocate memory space
-  VirtualTable *table = new VirtualTable(schema, buffer_pool_manager,
-                                         lock_manager, log_manager, index);
+    // parse arg[4](string that defines table index)
+    Index *index = nullptr;
+    if (argc > 4) {
+        std::string index_string(argv[4]);
+        index_string = index_string.substr(1, (index_string.size() - 2));
+        // create index object, allocate memory space
+        IndexMetadata *index_metadata = ParseIndexStatement(index_string, std::string(argv[2]), schema);
+        index = ConstructIndex(index_metadata, buffer_pool_manager);
+    }
+    // create table object, allocate memory space
+    VirtualTable *table = new VirtualTable(
+        schema, buffer_pool_manager, lock_manager, log_manager, index);
 
-  // insert table root page info into header page
-  header_page->InsertRecord(std::string(argv[2]), table->GetFirstPageId());
-  buffer_pool_manager->UnpinPage(HEADER_PAGE_ID, true);
+    // insert table root page info into header page
+    header_page->InsertRecord(std::string(argv[2]), table->GetFirstPageId());
+    buffer_pool_manager->UnpinPage(HEADER_PAGE_ID, true);
 
-  // register virtual table within sqlite system
-  schema_string = "CREATE TABLE X(" + schema_string + ");";
-  assert(sqlite3_declare_vtab(db, schema_string.c_str()) == SQLITE_OK);
+    // register virtual table within sqlite system
+    schema_string = "CREATE TABLE X(" + schema_string + ");";
+    assert(sqlite3_declare_vtab(db, schema_string.c_str()) == SQLITE_OK);
 
-  *ppVtab = reinterpret_cast<sqlite3_vtab *>(table);
-  return SQLITE_OK;
+    *ppVtab = reinterpret_cast<sqlite3_vtab *>(table);
+    return SQLITE_OK;
 }
 
 int VtabConnect(sqlite3 *db, void *pAux, int argc, const char *const *argv,
@@ -372,27 +372,31 @@ sqlite3_module VtableModule = {
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
-    extern "C" int sqlite3_vtable_init(sqlite3 *db, char **pzErrMsg,
+extern "C" int sqlite3_vtable_init(sqlite3 *db, char **pzErrMsg,
                                        const sqlite3_api_routines *pApi) {
-  SQLITE_EXTENSION_INIT2(pApi);
-  std::string db_file_name = "vtable.db";
-  struct stat buffer;
-  bool is_file_exist = (stat(db_file_name.c_str(), &buffer) == 0);
+    SQLITE_EXTENSION_INIT2(pApi);
+    /* 该数据库的存储形式是一个文件，文件名vtable.db */
+    std::string db_file_name = "vtable.db";
+    struct stat buffer;  /* stat命令检查文件是否存在 */
+    bool is_file_exist = (stat(db_file_name.c_str(), &buffer) == 0);
+    /**
+     * @brief init storage engine
+     *  一个存储引擎的实例对应一个数据库文件
+     */
+    storage_engine_ = new StorageEngine(db_file_name);
+    // start the logging
+    storage_engine_->log_manager_->RunFlushThread();
+    // create header page from BufferPoolManager if necessary
+    if (!is_file_exist) {
+        page_id_t header_page_id;
+        storage_engine_->buffer_pool_manager_->NewPage(header_page_id);
+        assert(header_page_id == HEADER_PAGE_ID);
+        /* unpin表示不再使用page */
+        storage_engine_->buffer_pool_manager_->UnpinPage(header_page_id, true);
+    }
 
-  // init storage engine
-  storage_engine_ = new StorageEngine(db_file_name);
-  // start the logging
-  storage_engine_->log_manager_->RunFlushThread();
-  // create header page from BufferPoolManager if necessary
-  if (!is_file_exist) {
-    page_id_t header_page_id;
-    storage_engine_->buffer_pool_manager_->NewPage(header_page_id);
-    assert(header_page_id == HEADER_PAGE_ID);
-    storage_engine_->buffer_pool_manager_->UnpinPage(header_page_id, true);
-  }
-
-  int rc = sqlite3_create_module(db, "vtable", &VtableModule, nullptr);
-  return rc;
+    int rc = sqlite3_create_module(db, "vtable", &VtableModule, nullptr);
+    return rc;
 }
 
 /* Helpers */

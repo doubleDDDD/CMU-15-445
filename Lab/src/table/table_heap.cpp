@@ -33,54 +33,59 @@ TableHeap::TableHeap(BufferPoolManager *buffer_pool_manager,
   buffer_pool_manager_->UnpinPage(first_page_id_, true);
 }
 
+
+/**
+ * @brief TableHeap对应一个table
+ * 记录了一个table中的第一个page的id
+ */
 bool TableHeap::InsertTuple(const Tuple &tuple, RID &rid, Transaction *txn) {
-  if (tuple.size_ + 32 > PAGE_SIZE) { // larger than one page size
-    txn->SetState(TransactionState::ABORTED);
-    return false;
-  }
-
-  auto cur_page =
-      static_cast<TablePage *>(buffer_pool_manager_->FetchPage(first_page_id_));
-  if (cur_page == nullptr) {
-    txn->SetState(TransactionState::ABORTED);
-    return false;
-  }
-
-  cur_page->WLatch();
-  while (!cur_page->InsertTuple(
-      tuple, rid, txn, lock_manager_,
-      log_manager_)) { // fail to insert due to not enough space
-    auto next_page_id = cur_page->GetNextPageId();
-    if (next_page_id != INVALID_PAGE_ID) { // valid next page
-      cur_page->WUnlatch();
-      buffer_pool_manager_->UnpinPage(cur_page->GetPageId(), false);
-      cur_page = static_cast<TablePage *>(
-          buffer_pool_manager_->FetchPage(next_page_id));
-      cur_page->WLatch();
-    } else { // create new page
-      auto new_page =
-          static_cast<TablePage *>(buffer_pool_manager_->NewPage(next_page_id));
-      if (new_page == nullptr) {
-        cur_page->WUnlatch();
-        buffer_pool_manager_->UnpinPage(cur_page->GetPageId(), false);
+    if (tuple.size_ + 32 > PAGE_SIZE) {
+        // larger than one page size
         txn->SetState(TransactionState::ABORTED);
         return false;
-      }
-      new_page->WLatch();
-      std::cout << "new table page " << next_page_id << " created" <<
-                std::endl;
-      cur_page->SetNextPageId(next_page_id);
-      new_page->Init(next_page_id, PAGE_SIZE, cur_page->GetPageId(),
-                     log_manager_, txn);
-      cur_page->WUnlatch();
-      buffer_pool_manager_->UnpinPage(cur_page->GetPageId(), true);
-      cur_page = new_page;
     }
-  }
-  cur_page->WUnlatch();
-  buffer_pool_manager_->UnpinPage(cur_page->GetPageId(), true);
-  txn->GetWriteSet()->emplace_back(rid, WType::INSERT, Tuple{}, this);
-  return true;
+
+    /* 获取table对应的第一个page */
+    auto cur_page = static_cast<TablePage *>(buffer_pool_manager_->FetchPage(first_page_id_));
+    if (cur_page == nullptr) {
+        txn->SetState(TransactionState::ABORTED);
+        return false;
+    }
+
+    cur_page->WLatch();
+    while (!cur_page->InsertTuple(tuple, rid, txn, lock_manager_, log_manager_)) {
+        /* fail to insert due to not enough space */
+        auto next_page_id = cur_page->GetNextPageId();
+        if (next_page_id != INVALID_PAGE_ID) { // valid next page
+            cur_page->WUnlatch();
+            buffer_pool_manager_->UnpinPage(cur_page->GetPageId(), false);
+            cur_page = static_cast<TablePage *>(
+                buffer_pool_manager_->FetchPage(next_page_id));
+            cur_page->WLatch();
+        } else { // create new page
+            auto new_page =
+                static_cast<TablePage *>(buffer_pool_manager_->NewPage(next_page_id));
+            if (new_page == nullptr) {
+                cur_page->WUnlatch();
+                buffer_pool_manager_->UnpinPage(cur_page->GetPageId(), false);
+                txn->SetState(TransactionState::ABORTED);
+                return false;
+            }
+            new_page->WLatch();
+            std::cout << "new table page " << next_page_id << " created" << std::endl;
+            /* 利用list将page都连接起来 */
+            cur_page->SetNextPageId(next_page_id);
+            new_page->Init(next_page_id, PAGE_SIZE, cur_page->GetPageId(), log_manager_, txn);
+            cur_page->WUnlatch();
+            buffer_pool_manager_->UnpinPage(cur_page->GetPageId(), true);
+            cur_page = new_page;
+        }
+    }
+
+    cur_page->WUnlatch();
+    buffer_pool_manager_->UnpinPage(cur_page->GetPageId(), true);
+    txn->GetWriteSet()->emplace_back(rid, WType::INSERT, Tuple{}, this);
+    return true;
 }
 
 bool TableHeap::MarkDelete(const RID &rid, Transaction *txn) {

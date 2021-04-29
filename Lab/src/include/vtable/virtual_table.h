@@ -101,97 +101,97 @@ StorageEngine *storage_engine_;
 Transaction *global_transaction_ = nullptr;
 
 class VirtualTable {
-  friend class Cursor;
+    friend class Cursor;
 
 public:
-  VirtualTable(Schema *schema, BufferPoolManager *buffer_pool_manager,
-               LockManager *lock_manager, LogManager *log_manager, Index *index,
-               page_id_t first_page_id = INVALID_PAGE_ID)
-      : schema_(schema), index_(index) {
-    if (first_page_id != INVALID_PAGE_ID) {
-      // reopen an exist table
-      table_heap_ = new TableHeap(buffer_pool_manager, lock_manager,
-                                  log_manager, first_page_id);
-    } else {
-      // create table for the first time
-      Transaction *txn = storage_engine_->transaction_manager_->Begin();
-      table_heap_ =
-          new TableHeap(buffer_pool_manager, lock_manager, log_manager, txn);
-      storage_engine_->transaction_manager_->Commit(txn);
+    VirtualTable(Schema *schema, BufferPoolManager *buffer_pool_manager,
+                LockManager *lock_manager, LogManager *log_manager, Index *index,
+                page_id_t first_page_id = INVALID_PAGE_ID)
+        : schema_(schema), index_(index) {
+        if (first_page_id != INVALID_PAGE_ID) {
+            // reopen an exist table
+            table_heap_ = new TableHeap(buffer_pool_manager, lock_manager,
+                                      log_manager, first_page_id);
+        } else {
+            // create table for the first time
+            Transaction *txn = storage_engine_->transaction_manager_->Begin();
+            table_heap_ =
+                new TableHeap(buffer_pool_manager, lock_manager, log_manager, txn);
+            storage_engine_->transaction_manager_->Commit(txn);
+        }
     }
-  }
 
-  ~VirtualTable() {
-    delete schema_;
-    delete table_heap_;
-    delete index_;
-  }
+    ~VirtualTable() {
+        delete schema_;
+        delete table_heap_;
+        delete index_;
+    }
 
-  // insert into table heap
-  inline bool InsertTuple(const Tuple &tuple, RID &rid) {
-    return table_heap_->InsertTuple(tuple, rid, GetTransaction());
-  }
+    // insert into table heap
+    inline bool InsertTuple(const Tuple &tuple, RID &rid) {
+        return table_heap_->InsertTuple(tuple, rid, GetTransaction());
+    }
 
-  // insert into index
-  inline void InsertEntry(const Tuple &tuple, const RID &rid) {
-    if (index_ == nullptr)
-      return;
-    // construct indexed key tuple
-    std::vector<Value> key_values;
+    // insert into index
+    inline void InsertEntry(const Tuple &tuple, const RID &rid) {
+        if (index_ == nullptr)
+        return;
+        // construct indexed key tuple
+        std::vector<Value> key_values;
 
-    for (auto &i : index_->GetKeyAttrs())
-      key_values.push_back(tuple.GetValue(schema_, i));
-    Tuple key(key_values, index_->GetKeySchema());
-    index_->InsertEntry(key, rid, GetTransaction());
-  }
+        for (auto &i : index_->GetKeyAttrs())
+        key_values.push_back(tuple.GetValue(schema_, i));
+        Tuple key(key_values, index_->GetKeySchema());
+        index_->InsertEntry(key, rid, GetTransaction());
+    }
 
-  // delete from table heap
-  // TODO: call makrdelete method from heaptable
-  inline bool DeleteTuple(const RID &rid) {
-    return table_heap_->MarkDelete(rid, GetTransaction());
-  }
+    // delete from table heap
+    // TODO: call makrdelete method from heaptable
+    inline bool DeleteTuple(const RID &rid) {
+        return table_heap_->MarkDelete(rid, GetTransaction());
+    }
 
-  // delete from index
-  inline void DeleteEntry(const RID &rid) {
-    if (index_ == nullptr)
-      return;
-    Tuple deleted_tuple(rid);
-    table_heap_->GetTuple(rid, deleted_tuple, GetTransaction());
-    // construct indexed key tuple
-    std::vector<Value> key_values;
+    // delete from index
+    inline void DeleteEntry(const RID &rid) {
+        if (index_ == nullptr)
+        return;
+        Tuple deleted_tuple(rid);
+        table_heap_->GetTuple(rid, deleted_tuple, GetTransaction());
+        // construct indexed key tuple
+        std::vector<Value> key_values;
 
-    for (auto &i : index_->GetKeyAttrs())
-      key_values.push_back(deleted_tuple.GetValue(schema_, i));
-    Tuple key(key_values, index_->GetKeySchema());
-    index_->DeleteEntry(key, GetTransaction());
-  }
+        for (auto &i : index_->GetKeyAttrs())
+        key_values.push_back(deleted_tuple.GetValue(schema_, i));
+        Tuple key(key_values, index_->GetKeySchema());
+        index_->DeleteEntry(key, GetTransaction());
+    }
 
-  // update table heap tuple
-  inline bool UpdateTuple(const Tuple &tuple, const RID &rid) {
-    // if failed try to delete and insert
-    return table_heap_->UpdateTuple(tuple, rid, GetTransaction());
-  }
+    // update table heap tuple
+    inline bool UpdateTuple(const Tuple &tuple, const RID &rid) {
+        // if failed try to delete and insert
+        return table_heap_->UpdateTuple(tuple, rid, GetTransaction());
+    }
 
-  inline TableIterator begin() { return table_heap_->begin(GetTransaction()); }
+    inline TableIterator begin() { return table_heap_->begin(GetTransaction()); }
 
-  inline TableIterator end() { return table_heap_->end(); }
+    inline TableIterator end() { return table_heap_->end(); }
 
-  inline Schema *GetSchema() { return schema_; }
+    inline Schema *GetSchema() { return schema_; }
 
-  inline Index *GetIndex() { return index_; }
+    inline Index *GetIndex() { return index_; }
 
-  inline TableHeap *GetTableHeap() { return table_heap_; }
+    inline TableHeap *GetTableHeap() { return table_heap_; }
 
-  inline page_id_t GetFirstPageId() { return table_heap_->GetFirstPageId(); }
+    inline page_id_t GetFirstPageId() { return table_heap_->GetFirstPageId(); }
 
 private:
-  sqlite3_vtab base_;
-  // virtual table schema
-  Schema *schema_;
-  // to read/write actual data in table
-  TableHeap *table_heap_;
-  // to insert/delete index entry
-  Index *index_ = nullptr;
+    sqlite3_vtab base_;
+    // virtual table schema
+    Schema *schema_;
+    // to read/write actual data in table
+    TableHeap *table_heap_;
+    // to insert/delete index entry
+    Index *index_ = nullptr;
 };
 
 class Cursor {

@@ -9,44 +9,58 @@
 namespace cmudb {
 /**
  * Header related
+ * page id (4字节) | prev page id (4字节) | next page id (4字节)
  */
-void TablePage::Init(page_id_t page_id, size_t page_size,
-                     page_id_t prev_page_id, LogManager *log_manager,
-                     Transaction *txn) {
-  memcpy(GetData(), &page_id, 4); // set page_id
-  if (ENABLE_LOGGING) {
-    // TODO: add your logging logic here
-    // 创建一条日志并添加
-    LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(),
-                    LogRecordType::NEWPAGE, prev_page_id);
-    lsn_t lsn = log_manager->AppendLogRecord(log);
-    txn->SetPrevLSN(lsn);
-    SetLSN(lsn);
-  }
-  SetPrevPageId(prev_page_id);
-  SetNextPageId(INVALID_PAGE_ID);
-  SetFreeSpacePointer(page_size);
-  SetTupleCount(0);
+void
+TablePage::Init(
+    page_id_t page_id, size_t page_size, page_id_t prev_page_id, 
+    LogManager *log_manager, Transaction *txn) 
+{
+    /**
+     * @brief page的前4个字节用于描述page id 
+     * page_id_t 是4字节的
+     * 4 字节的 unsigned int 4G 左右的大小，一个page 4KB算的话，一个文件最大16GB左右
+     *  1 << 32 右边32个0
+     * 所有的page是用list来组织的
+     */
+    memcpy(GetData(), &page_id, 4); // set page_id
+    if (ENABLE_LOGGING) {
+        // TODO: add your logging logic here
+        // 创建一条日志并添加
+        LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(),
+                        LogRecordType::NEWPAGE, prev_page_id);
+        lsn_t lsn = log_manager->AppendLogRecord(log);
+        txn->SetPrevLSN(lsn);
+        SetLSN(lsn);
+    }
+    SetPrevPageId(prev_page_id);
+    SetNextPageId(INVALID_PAGE_ID);
+    SetFreeSpacePointer(page_size);
+    SetTupleCount(0);
 }
 
-page_id_t TablePage::GetPageId() {
-  return *reinterpret_cast<page_id_t *>(GetData());
+page_id_t 
+TablePage::GetPageId() {
+    return *reinterpret_cast<page_id_t *>(GetData());
 }
 
-page_id_t TablePage::GetPrevPageId() {
-  return *reinterpret_cast<page_id_t *>(GetData() + 8);
+page_id_t 
+TablePage::GetPrevPageId() {
+    return *reinterpret_cast<page_id_t *>(GetData() + 8);
 }
 
-page_id_t TablePage::GetNextPageId() {
-  return *reinterpret_cast<page_id_t *>(GetData() + 12);
+page_id_t 
+TablePage::GetNextPageId() {
+    return *reinterpret_cast<page_id_t *>(GetData() + 12);
 }
 
 void TablePage::SetPrevPageId(page_id_t prev_page_id) {
-  memcpy(GetData() + 8, &prev_page_id, 4);
+    memcpy(GetData() + 8, &prev_page_id, 4);
 }
 
-void TablePage::SetNextPageId(page_id_t next_page_id) {
-  memcpy(GetData() + 12, &next_page_id, 4);
+void 
+TablePage::SetNextPageId(page_id_t next_page_id) {
+    memcpy(GetData() + 12, &next_page_id, 4);
 }
 
 /**

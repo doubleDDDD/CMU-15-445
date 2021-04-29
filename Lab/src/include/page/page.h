@@ -17,44 +17,44 @@
 namespace cmudb {
 
 class Page {
-  friend class BufferPoolManager;
+    friend class BufferPoolManager;
 
 public:
-  Page() { ResetMemory(); }
-  ~Page() {};
+    Page() { ResetMemory(); }
+    ~Page() {};
 
-  // disable copy
-  Page(Page const &) = delete;
-  Page &operator=(Page const &) = delete;
+    // disable copy
+    Page(Page const &) = delete;
+    Page &operator=(Page const &) = delete;
 
-  // get actual data page content
-  inline char *GetData() { return data_; }
+    // get actual data page content
+    inline char *GetData() { return data_; }
 
-  // get page id
-  inline page_id_t GetPageId() { return page_id_; }
+    // get page id
+    inline page_id_t GetPageId() { return page_id_; }
 
-  // get page pin count
-  inline int GetPinCount() { return pin_count_; }
+    // get page pin count
+    inline int GetPinCount() { return pin_count_; }
 
-  // method use to latch/unlatch page content
-  inline void WUnlatch() { rwlatch_.WUnlock(); }
-  inline void WLatch() { rwlatch_.WLock(); }
-  inline void RUnlatch() { rwlatch_.RUnlock(); }
-  inline void RLatch() { rwlatch_.RLock(); }
+    // method use to latch/unlatch page content
+    inline void WUnlatch() { rwlatch_.WUnlock(); }
+    inline void WLatch() { rwlatch_.WLock(); }
+    inline void RUnlatch() { rwlatch_.RUnlock(); }
+    inline void RLatch() { rwlatch_.RLock(); }
 
-  inline lsn_t GetLSN() { return *reinterpret_cast<lsn_t *>(GetData() + 4); }
-  inline void SetLSN(lsn_t lsn) { memcpy(GetData() + 4, &lsn, 4); }
+    inline lsn_t GetLSN() { return *reinterpret_cast<lsn_t *>(GetData() + 4); }
+    inline void SetLSN(lsn_t lsn) { memcpy(GetData() + 4, &lsn, 4); }
 
 private:
-  // method used by buffer pool manager
-  inline void ResetMemory() { memset(data_, 0, PAGE_SIZE); }  // 清0
+    // method used by buffer pool manager
+    inline void ResetMemory() { memset(data_, 0, PAGE_SIZE); }  // 清0
 
-  // members, page的元数据
-  char data_[PAGE_SIZE]; // actual data，代表内存中的一个页
-  page_id_t page_id_ = INVALID_PAGE_ID;  // id
-  int pin_count_ = 0;
-  bool is_dirty_ = false;
-  RWMutex rwlatch_;
+    // members, page的元数据
+    char data_[PAGE_SIZE]; // actual data，代表内存中的一个页
+    page_id_t page_id_ = INVALID_PAGE_ID;  // id
+    int pin_count_ = 0;
+    bool is_dirty_ = false;
+    RWMutex rwlatch_;
 };
 
 } // namespace cmudb
