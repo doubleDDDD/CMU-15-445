@@ -22,19 +22,19 @@ namespace cmudb {
 
 /**
  * @brief hash依赖 std::map<K, V> items;
- only support unique key
+ * only support unique key
  */
 template <typename K, typename V>
 class ExtendibleHash : public HashTable<K, V> {
-  struct Bucket {
-    /* = default 在写了带参数的构造函数之后依然需要一个默认构造函数 */
-    Bucket() = default;
-    /* explicit防止类型转换的构造函数 */
-    explicit Bucket(size_t i, int d) : id(i), depth(d) {}
-    std::map<K, V> items;          // key-value pairs
-    size_t id = 0;                 // id of Bucket
-    int depth = 0;                 // local depth counter
-  };
+    struct Bucket {
+        /* = default 在写了带参数的构造函数之后依然需要一个默认构造函数 */
+        Bucket() = default;
+        /* explicit防止类型转换的构造函数 */
+        explicit Bucket(size_t i, int d) : id(i), depth(d) {}
+        std::map<K, V> items;          // key-value pairs
+        size_t id = 0;                 // id of Bucket
+        int depth = 0;                 // depth of local bucket
+    };
 public:
     // 构造函数
     ExtendibleHash(size_t size);
@@ -62,6 +62,15 @@ public:
     // 返回桶总数
     int GetNumBuckets() const;
 
+    // show hash table
+    void Show() const;
+
+    // friend std::ostream& operator << (std::ostream& os, const std::map<K, V>& tmp){
+    //     os << "key:" << tmp.frist << std::endl;
+    //     return os;
+    //     // << tmp.second
+    // }
+
 private:
     mutable std::mutex mutex_;      // 注意要加mutable
 
@@ -73,7 +82,7 @@ private:
 
     int depth;              // 全局的桶的深度
 
-    std::vector<std::shared_ptr<Bucket>> bucket_;    // 桶数组
+    std::vector<std::shared_ptr<Bucket>> bucket_;    // 桶数组，智能指针
 
     std::shared_ptr<Bucket> split(std::shared_ptr<Bucket> &); // 分裂新桶
 };

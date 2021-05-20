@@ -15,11 +15,11 @@ namespace cmudb
  * BufferPoolManager Constructor
  * When log_manager is nullptr, logging is disabled (for test purpose)
  * WARNING: Do Not Edit This Function
- * 内存中的page buff由一个list与一个可扩展的hash表来共同管理
+ * 内存中的 page buff 由一个 list 与一个可扩展的 hash 表来共同管理
+ * 当然还有一个 LRU, LRU 有一个头就可以了
  */
-BufferPoolManager::BufferPoolManager(size_t pool_size,
-									 DiskManager *disk_manager,
-									 LogManager *log_manager)
+BufferPoolManager::BufferPoolManager(
+	size_t pool_size, DiskManager *disk_manager, LogManager *log_manager)
 	: pool_size_(pool_size), disk_manager_(disk_manager),
 	  log_manager_(log_manager)
 {
@@ -32,14 +32,14 @@ BufferPoolManager::BufferPoolManager(size_t pool_size,
 	pages_ = new Page[pool_size_];  /* 分配连续的内存空间，每一个page有4K */
 	free_list_ = new std::list<Page *>;
 
-	replacer_ = new LRUReplacer<Page *>;
+	replacer_ = new LRUReplacer<Page *>;  /* page替换算法 LRU */
 	// 可扩展的hash表, 理解为 page id 与 page 的 kv
+	// page id 是可以变的，实际上表示的是文件中的偏移，page id是多少，就是哪一部分 disk 的 cache
 	page_table_ = new ExtendibleHash<page_id_t, Page *>(BUCKET_SIZE);  // BUCKET_SIZE is 50
 
 	// put all the pages into free list
 	// page由一个list管理
-	for (size_t i = 0; i < pool_size_; ++i)
-	{
+	for (size_t i = 0; i < pool_size_; ++i){
 		free_list_->push_back(&pages_[i]);
 	}
 }
@@ -71,44 +71,39 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id)
 {
 	/**
 	 * @brief page_table_就是这个hash表
+	 *	fetch是获取一个已经存在的 page，假设一个数据库文件占 3 个 page, 0-2的id就是可以fetch的
 	 */
 	assert(page_id != INVALID_PAGE_ID);
 	std::lock_guard<std::mutex> lock(mutex_);
 
 	Page *res = nullptr;
-	if (page_table_->Find(page_id, res))
-	{
-		// mark the Page as pinned, 相当于引用+1
-		++res->pin_count_;
-		// remove its entry from LRUReplacer
-		replacer_->Erase(res);
+	if (page_table_->Find(page_id, res)) {
+		// search in hash table
+		++res->pin_count_;  // mark the Page as pinned, 线程引用+1
+		replacer_->Erase(res);  // remove its entry from LRUReplacer
 		return res;
 	}
-	else
-	{
+	else {
 		/* id没有对应的page被使用 */
-		if (!free_list_->empty())
-		{
+		if (!free_list_->empty()) {
 			/* list容器中有元素，说明还有空闲的page */
 			res = free_list_->front();  /* 第一个元素的ref */
 			free_list_->pop_front();  /* 删除容器头部的第一个元素 */
 		}
-		else
-		{
+		else {
 			/* 没有空页了，需要执行页面替换算法，把一部分数据丢到disk */
-			if (!replacer_->Victim(res))
-			{
-				return nullptr;
+			if (!replacer_->Victim(res)) {
+				return nullptr;  /* 无page可换 */
 			}
 		}
 	}
 
 	assert(res->pin_count_ == 0);  /* free list中的page一定是没有ref的 */
-	if (res->is_dirty_)
-	{
+	if (res->is_dirty_) {
 		/* 脏页写回 */
 		disk_manager_->WritePage(res->page_id_, res->GetData());
 	}
+
 	// delete the entry for old page in hash table
 	page_table_->Remove(res->page_id_);
 
@@ -125,36 +120,30 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id)
 }
 
 /*
- * Implementation of unpin page
+ * Implementation of unpin page 用完一个 page 之后要 unpin, 核心目的就是引用计数 -1
  * if pin_count>0, decrement it and if it becomes zero, put it back to
  * replacer if pin_count<=0 before this call, return false. is_dirty: set the
  * dirty flag of this page
  */
 bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty)
 {
-	std::lock_guard<std::mutex> lock(mutex_);
+	std::lock_guard<std::mutex> lock(mutex_);  /* 得到锁，才继续向下执行 */
 
 	Page *res = nullptr;
-	if (!page_table_->Find(page_id, res))
-	{
+	if (!page_table_->Find(page_id, res)) {
 		return false;
 	}
-	else
-	{
-		if (res->pin_count_ > 0)
-		{
-			if (--res->pin_count_ == 0)
-			{
+	else {
+		if (res->pin_count_ > 0) {
+			if (--res->pin_count_ == 0) {
 				replacer_->Insert(res);
 			}
 		}
-		else
-		{
+		else {
 			return false;
 		}
 
-		if (is_dirty)
-		{
+		if (is_dirty) {
 			res->is_dirty_ = true;
 		}
 		return true;
@@ -169,6 +158,7 @@ bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty)
  */
 bool BufferPoolManager::FlushPage(page_id_t page_id)
 {
+	/* just like fsync */
 	std::lock_guard<std::mutex> lock(mutex_);
 
 	if (page_id == INVALID_PAGE_ID)
@@ -193,11 +183,11 @@ bool BufferPoolManager::FlushPage(page_id_t page_id)
  */
 bool BufferPoolManager::DeletePage(page_id_t page_id)
 {
+	/* 实际即使删除磁盘上的部分文件 */
 	std::lock_guard<std::mutex> lock(mutex_);
 
 	Page *res = nullptr;
-	if(page_table_->Find(page_id, res))
-	{
+	if(page_table_->Find(page_id, res)) {
 		page_table_->Remove(page_id);
 		res->page_id_ = INVALID_PAGE_ID;
 		res->is_dirty_ = false;
@@ -222,26 +212,22 @@ bool BufferPoolManager::DeletePage(page_id_t page_id)
  */
 Page *BufferPoolManager::NewPage(page_id_t &page_id)
 {
+	/* 说白了就是 append in db file */
 	std::lock_guard<std::mutex> lock(mutex_);
 
 	Page *res = nullptr;
-	if(!free_list_->empty())
-	{
+	if(!free_list_->empty()){
 		res = free_list_->front();
 		free_list_->pop_front();
 	}
-	else
-	{
-		if(!replacer_->Victim(res))
-		{
+	else {
+		if(!replacer_->Victim(res)) {
 			return nullptr;
 		}
 	}
 
-
 	page_id = disk_manager_->AllocatePage();
-	if(res->is_dirty_)
-	{
+	if(res->is_dirty_){
 		disk_manager_->WritePage(res->page_id_, res->GetData());
 	}
 

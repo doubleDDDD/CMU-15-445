@@ -54,7 +54,7 @@ private:
     page_id_t page_id_ = INVALID_PAGE_ID;  // id
     int pin_count_ = 0;
     bool is_dirty_ = false;
-    RWMutex rwlatch_;
+    RWMutex rwlatch_;  // 读写锁
 };
 
 } // namespace cmudb

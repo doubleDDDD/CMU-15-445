@@ -7,6 +7,17 @@
 #include "hash/extendible_hash.h"
 #include "page/page.h"
 
+/**
+ * vector
+ * |——| -> map
+ * |——| -> map
+ * |——| -> map
+ * |——| -> map
+ * |——| -> map
+ * https://cloud.tencent.com/developer/article/1020586
+ * 数组的个数是2的D次方，桶的容量是2的L次方，D称为全局深度，L称为局部深度
+ * 假设D=2,L=2。那么一个桶的最大数据量就是4，如果insert的时候，数据超过了4，就需要分裂新的桶
+ */
 namespace cmudb {
 
 /*
@@ -14,12 +25,16 @@ namespace cmudb {
  * array_size: fixed array size for each bucket
  */
 template <typename K, typename V>
-ExtendibleHash<K, V>::ExtendibleHash(size_t size)
-: bucket_size_(size), bucket_count_(0),
-    pair_count_(0), depth(0) {
+ExtendibleHash<K, V>::ExtendibleHash(size_t size) 
+    : bucket_size_(size), bucket_count_(0), pair_count_(0), depth(0) {
     /**
-     * @brief emplace_back 向vector尾端插入元素，与push_back有所区别，效率更高一些
-     构造函数初始化的时候hash桶的大小是1
+     * @brief 
+     * emplace_back 向vector尾端插入元素，与push_back有所区别，效率更高一些
+     * 全局depth的初始值是0，所以数组长度仅为1
+     * depth=0, array size=1  // depth=0的时候，hash result必然是0
+     * depth=1, array size=2  // depth=1的时候，hash result是HashKey的最后一位
+     * depth=2, array size=4  // 依次类推，hash result 是 HashKey 的低 depth 位
+     * ...
      */
     bucket_.emplace_back(new Bucket(0, 0));
     bucket_count_ = 1;
@@ -27,9 +42,8 @@ ExtendibleHash<K, V>::ExtendibleHash(size_t size)
 
 /*
  * helper function to calculate the hashing address of input key
- * std::hash<>: assumption already has specialization for type K
- * namespace std have standard specializations for basic types.
- * 返回桶的偏移量，实际上就是hash函数
+ * the result of HashKey(key) & ((1 << depth) - 1) is like
+ * hash后的这个结果差别还蛮大的
  */
 template <typename K, typename V>
 size_t ExtendibleHash<K, V>::HashKey(const K &key) {
@@ -39,21 +53,24 @@ size_t ExtendibleHash<K, V>::HashKey(const K &key) {
 /*
  * helper function to return global depth of hash table
  * NOTE: you must implement this function in order to pass test
- * 返回哈希表当前深度
  */
 template <typename K, typename V>
 int ExtendibleHash<K, V>::GetGlobalDepth() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    /* 全局桶深度 */
+    std::lock_guard<std::mutex> lock(mutex_);  /* 防止其它线程的修改，保证并发安全 */
     return depth;
 }
 
 /*
  * helper function to return local depth of one specific bucket
  * NOTE: you must implement this function in order to pass test
- * 返回给定偏移的局部深度
  */
 template <typename K, typename V>
 int ExtendibleHash<K, V>::GetLocalDepth(int bucket_id) const {
+    /** 
+    * bucket_id 就是数组的偏移
+    * 返回给定偏移的局部深度 
+    */
     std::lock_guard<std::mutex> lock(mutex_);
     if(bucket_[bucket_id]) {
         return bucket_[bucket_id]->depth;
@@ -63,10 +80,10 @@ int ExtendibleHash<K, V>::GetLocalDepth(int bucket_id) const {
 
 /*
  * helper function to return current number of bucket in hash table
- * 返回桶总数
  */
 template <typename K, typename V>
 int ExtendibleHash<K, V>::GetNumBuckets() const {
+    /* 返回桶总数 */
     std::lock_guard<std::mutex> lock(mutex_);
     return bucket_count_;
 }
@@ -82,7 +99,7 @@ bool ExtendibleHash<K, V>::Find(const K &key, V &value) {
 
     if(bucket_[position]) {
         if(bucket_[position]->items.find(key) != bucket_[position]->items.end()) {
-            value = bucket_[position]->items[key];
+            value = bucket_[position]->items[key];  /* 该值存在 */
             return true;
         }
     }
@@ -111,77 +128,77 @@ bool ExtendibleHash<K, V>::Remove(const K &key) {
 /*
  * insert <key,value> entry in hash table
  * Split & Redistribute bucket when there is overflow and if necessary increase
- * global depth
- * 插入元素
  */
 template <typename K, typename V>
 void ExtendibleHash<K, V>::Insert(const K &key, const V &value) {
     std::lock_guard<std::mutex> lock(mutex_);
-    size_t bucket_id = HashKey(key) & ((1 << depth) - 1);
+    size_t bucket_id = HashKey(key) & ((1 << depth) - 1);  /* hash后的depth位 */
 
-    // 找到插入的位置，如果为空则新建一个桶
+    std::cout << "Insert: key is:" << key << " depth: "
+        << depth << " hashkey: " << HashKey(key) << " bucket id: " << bucket_id << std::endl;
+
     if(bucket_[bucket_id] == nullptr) {
         bucket_[bucket_id] = std::make_shared<Bucket>(bucket_id, depth);
         ++bucket_count_;
     }
-    /**
-     * @brief 
-     auto可以在声明变量时根据变量初始值的类型自动为此变量选择匹配的类型
-     对于值x=1；即可以声明：int x = 1或long x = 1，也可以直接声明auto x = 1
-     */
+
     auto bucket = bucket_[bucket_id];
 
-    // 如果该位置有值，则覆盖，相当于update
+    /* update */
     if(bucket->items.find(key) != bucket->items.end()) {
         bucket->items[key] = value;
         return;
     }
 
-    // 插入键值对
+    /* insert */
     bucket->items.insert({key, value});
     ++pair_count_;
 
-    /**
-     * @brief 
-     显然每一个桶的长度不能过长，否则影响效率
-     当桶的长度超过预设的值，这里预设值为50
-     将分裂桶以及rehash
-     需要分裂桶以及重新分配
-     */
+    /* 当桶的长度超过预设的值，这里预设值为50，将分裂桶 */
     if(bucket->items.size() > bucket_size_) {
-        // 先记录旧的下标和全局深度
+        // for debug
+        Show();
+
         auto old_index = bucket->id;
         auto old_depth = bucket->depth;
 
+        /* 分裂生成一个新桶，一般后面都要扩展一倍的目录 */
         std::shared_ptr<Bucket> new_bucket = split(bucket);
 
-        // 溢出了就改回原来的深度
         if(new_bucket == nullptr) {
             bucket->depth = old_depth;
             return;
         }
 
-        // 若插入的桶的局部深度大于全局深度，则要扩展桶数组
+        /* 新桶旧桶的 depth 是一样的，若插入的桶的局部深度大于全局深度，则要扩展桶数组 */
         if(bucket->depth > depth) {
-            auto size = bucket_.size();
-            auto factor = (1 << (bucket->depth - depth));
+            // std::cout 
+            //     << "extend new bucket, new depth: " << bucket->depth 
+            //     << " old depth: " << depth << std::endl;
+
+            auto size = bucket_.size();  // 当前的 array size
+            auto factor = (1 << (bucket->depth - depth));  // 看看大了2的几次方出去
 
             depth = bucket->depth;
-            bucket_.resize(bucket_.size()*factor);
+            bucket_.resize(bucket_.size() * factor);  /* 调整大小后的 array size */
 
-            // 修改和添加要插入的桶和新建的桶
-            bucket_[bucket->id] = bucket;
-            bucket_[new_bucket->id] = new_bucket;
+            /* bucket 被分裂后，一部分留在了bucket中，但是index是old，首先换index */
+            bucket_[bucket->id] = bucket;  /* 保留在原桶中的值可能要换id */
+            bucket_[new_bucket->id] = new_bucket;  /* move到新桶中的值 */
 
-            // 遍历桶数组
+            // for debug
+            // Show();
+
+            /* size 是之前的大小 */
             for(size_t i = 0; i < size; ++i) {
                 if(bucket_[i]) {
                     if(i < bucket_[i]->id){
-                        bucket_[i].reset();
+                        // std::cout << "reset index: " << i << std::endl;
+                        bucket_[i].reset();  /* 一定已经被copy到另一个桶中了，智能指针的reset方法，这里已经被rehash掉了 */
                     } else {
                         auto step = 1 << bucket_[i]->depth;
                         for(size_t j = i + step; j < bucket_.size(); j += step) {
-                            bucket_[j] = bucket_[i];
+                            bucket_[j] = bucket_[i];  /* rehash */
                         }
                     }
                 }
@@ -214,38 +231,91 @@ template <typename K, typename V>
 std::shared_ptr<typename ExtendibleHash<K, V>::Bucket>
 ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b) {
     /**
-     * @brief 
-        先利用make_shared创建一个新桶
-        new bucket的id是0，深度与旧桶一致
-        b代表的是旧桶
+     * 先利用make_shared创建一个新桶
+     * new bucket 的 id 是 0，深度与旧桶一致
+     * b代表的是旧桶
      */
+    // std::cout << "split" << std::endl;
     auto res = std::make_shared<Bucket>(0, b->depth);
-    // 注意：这里是while循环
+
     while(res->items.empty()) {
-        // 先将深度加一
         b->depth++;
         res->depth++;
-        // 下面的for循环实现两个桶的分配
+        std::cout << "extend depth, new depth: " << b->depth << std::endl;
+
+        /* 遍历旧桶 */
         for(auto it = b->items.begin(); it != b->items.end();) {
-            // 注意下面两个HashKey与后面的式子是不一样的
             if (HashKey(it->first) & (1 << (b->depth - 1))) {
+                std::cout << "To new bucket, key is: " << it->first << " Hashkey is: "
+                    << HashKey(it->first) << " & value is: " << (1 << (b->depth - 1)) << std::endl;
                 res->items.insert(*it);
                 res->id = HashKey(it->first) & ((1 << b->depth) - 1);
+                std::cout << "  New bucket id: " << res->id <<std::endl;
                 it = b->items.erase(it);
             } else {
+                std::cout << "Stay in old bucket: " << b->id << " key is: " << it->first << " Hashkey is: "
+                    << HashKey(it->first) << " & value is: " << (1 << (b->depth - 1)) << std::endl;
                 ++it;
             }
         }
 
+        /* 遍历必须保证能够确实新桶旧桶中都有数据，否则就翻倍，即增加 depth */
         if(b->items.empty()) {
-            b->items.swap(res->items);
-            b->id = res->id;
+            b->items.swap(res->items);  /* 交换 */
+            b->id = res->id;  /* 交换之后 id 是有增长的 */
+            std::cout << "After swap: " << std::endl;
+            Show();
+            std::cout << "New bucket" << std::endl;
+
+            std::cout 
+                << " id is: " << res->id 
+                << " depth is: " << res->depth << " keys: ";
+
+            std::map<K, V> tmp = res->items;
+            for(auto it = tmp.begin(); it != tmp.end(); ++it){
+                std::cout << it->first << " ";
+            }
+            std::cout << std::endl;
         }
     }
 
     ++bucket_count_;
     return res;
 }
+
+template <typename K, typename V>
+void ExtendibleHash<K, V>::Show() const {
+    size_t i;
+    auto size = bucket_.size();
+
+    std::cout << "Show" << std::endl;
+    for(i=0; i<size; ++i) {
+        auto curr_bucket = bucket_[i];
+        if(curr_bucket){
+            std::cout 
+                << "    index is: " << i 
+                << " id is: " << curr_bucket->id 
+                << " depth is: " << curr_bucket->depth << " keys: ";
+
+            std::map<K, V> tmp = curr_bucket->items;
+            for(auto it = tmp.begin(); it != tmp.end(); ++it){
+                std::cout << it->first << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    return;
+}
+
+// std::map<K, V>::iterator
+// template <typename K, typename V>
+// friend std::ostream& operator << (std::ostream& os, const std::map<K, V>& tmp)
+// {
+//     os << "key:" << tmp.frist << ",value" << tmp.second << std::endl;
+//     return os ;
+// }
+
 
 template class ExtendibleHash<page_id_t, Page *>;
 template class ExtendibleHash<Page *, std::list<Page *>::iterator>;
