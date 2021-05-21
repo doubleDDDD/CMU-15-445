@@ -71,7 +71,8 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id)
 {
 	/**
 	 * @brief page_table_就是这个hash表
-	 *	fetch是获取一个已经存在的 page，假设一个数据库文件占 3 个 page, 0-2的id就是可以fetch的
+	 * fetch是获取一个已经存在的 page，假设一个数据库文件占 3 个 page, 0-2的id就是可以fetch的
+	 * 本质是一个读操作	
 	 */
 	assert(page_id != INVALID_PAGE_ID);
 	std::lock_guard<std::mutex> lock(mutex_);
@@ -212,7 +213,7 @@ bool BufferPoolManager::DeletePage(page_id_t page_id)
  */
 Page *BufferPoolManager::NewPage(page_id_t &page_id)
 {
-	/* 说白了就是 append in db file */
+	/* 说白了就是 append in db file，本质是一个写操作 */
 	std::lock_guard<std::mutex> lock(mutex_);
 
 	Page *res = nullptr;

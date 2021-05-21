@@ -381,7 +381,6 @@ extern "C" int sqlite3_vtable_init(sqlite3 *db, char **pzErrMsg,
     bool is_file_exist = (stat(db_file_name.c_str(), &buffer) == 0);
     /**
      * @brief init storage engine
-     *  一个存储引擎的实例对应一个数据库文件
      */
     storage_engine_ = new StorageEngine(db_file_name);
     // start the logging

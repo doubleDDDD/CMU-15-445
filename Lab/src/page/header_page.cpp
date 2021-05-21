@@ -41,6 +41,7 @@ bool HeaderPage::DeleteRecord(const std::string &name) {
         return false;
 
     int offset = index * 36 + 4;
+    /* 后面的整体前移 */
     memmove(GetData() + offset, GetData() + offset + 36,
             (record_num - index - 1) * 36);
 
