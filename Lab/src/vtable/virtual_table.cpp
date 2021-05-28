@@ -60,6 +60,7 @@ int VtabCreate(sqlite3 *db, void *pAux, int argc, const char *const *argv,
     // parse arg[4](string that defines table index)
     Index *index = nullptr;
     if (argc > 4) {
+        // 如果大于4，则说明需要创建索引
         std::string index_string(argv[4]);
         index_string = index_string.substr(1, (index_string.size() - 2));
         // create index object, allocate memory space

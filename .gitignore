@@ -3,3 +3,5 @@ GRTAGS
 GTAGS
 .vscode
 Lab/build/*
+Lab/debug/*
+Lab/release/*

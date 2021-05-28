@@ -134,8 +134,8 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value) {
     std::lock_guard<std::mutex> lock(mutex_);
     size_t bucket_id = HashKey(key) & ((1 << depth) - 1);  /* hash后的depth位 */
 
-    std::cout << "Insert: key is:" << key << " depth: "
-        << depth << " hashkey: " << HashKey(key) << " bucket id: " << bucket_id << std::endl;
+    // std::cout << "Insert: key is:" << key << " depth: "
+    //     << depth << " hashkey: " << HashKey(key) << " bucket id: " << bucket_id << std::endl;
 
     if(bucket_[bucket_id] == nullptr) {
         bucket_[bucket_id] = std::make_shared<Bucket>(bucket_id, depth);
