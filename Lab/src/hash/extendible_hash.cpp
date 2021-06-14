@@ -236,7 +236,8 @@ ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b) {
      * b代表的是旧桶
      */
     // std::cout << "split" << std::endl;
-    auto res = std::make_shared<Bucket>(0, b->depth);
+    // auto p = std::make_shared<int>(10); 可以理解为 int 类型的参数是 10
+    auto res = std::make_shared<Bucket>(0, b->depth);  // 括号里是指针类的参数
 
     while(res->items.empty()) {
         b->depth++;
