@@ -23,7 +23,8 @@ class BufferPoolManager {
 public:
 	BufferPoolManager(size_t pool_size, DiskManager *disk_manager,
 					  LogManager *log_manager = nullptr);
-
+	
+	// 不是基类，析构函数无所谓是否是虚函数了
 	~BufferPoolManager();
 
 	// disable copy
@@ -31,13 +32,9 @@ public:
 	BufferPoolManager &operator=(BufferPoolManager const &) = delete;
 
 	Page *FetchPage(page_id_t page_id);
-
 	bool UnpinPage(page_id_t page_id, bool is_dirty);
-
 	bool FlushPage(page_id_t page_id);
-
 	Page *NewPage(page_id_t &page_id);
-
 	bool DeletePage(page_id_t page_id);
 
 	// for debug
@@ -51,20 +48,13 @@ public:
 	}
 
 private:
-	size_t pool_size_;
-
-	Page *pages_;
-
+	size_t pool_size_;  // buffer pool 中 Page 的数量
+	Page *pages_;  // 所 hold 的存储空间是一个 Page 数组
 	std::list<Page *> *free_list_;
-
 	HashTable<page_id_t, Page *> *page_table_;
-
 	Replacer<Page *> *replacer_;
-
 	DiskManager *disk_manager_;
-
 	LogManager *log_manager_;
-
 	std::mutex mutex_;
 };
 

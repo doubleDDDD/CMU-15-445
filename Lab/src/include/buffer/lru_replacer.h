@@ -17,43 +17,40 @@
 
 namespace cmudb {
 
-template <typename T> class LRUReplacer : public Replacer<T> {
+/**
+ * @brief 任何一个类都要考虑能不能写成模板
+ * @tparam T
+ */
+
+template <typename T> 
+class LRUReplacer : public Replacer<T> {
     struct node {
         node() = default;
         explicit node(T d, node *p = nullptr) : data(d), pre(p) {}
-        T data;
+        T data;  // 在这里，T是一个指向 Page 的指针
         node *pre = nullptr;
         node *next = nullptr;
     };
-    public:
-        // do not change public interface
-        LRUReplacer();
+public:
+    // do not change public interface
+    LRUReplacer();
+    ~LRUReplacer();
 
-        ~LRUReplacer();
+    // disable copy
+    LRUReplacer(const LRUReplacer &) = delete;
+    LRUReplacer &operator=(const LRUReplacer &) = delete;
 
-        // disable copy
-        LRUReplacer(const LRUReplacer &) = delete;
-        LRUReplacer &operator=(const LRUReplacer &) = delete;
+    void Insert(const T &value);
+    bool Victim(T &value);
+    bool Erase(const T &value);
+    size_t Size();
 
-        void Insert(const T &value);
-
-        bool Victim(T &value);
-
-        bool Erase(const T &value);
-
-        size_t Size();
-
-
-    private:
-        mutable std::mutex mutex_;
-
-        size_t size_;
-
-        std::unordered_map<T, node *> table_;
-
-        node *head_;
-
-        node *tail_;
+private:
+    // 就是一个简单的双向的 list
+    mutable std::mutex mutex_;
+    size_t size_;
+    std::unordered_map<T, node *> table_;  // hash table 是为了加速索引的
+    node *head_;
+    node *tail_;
 };
-
 } // namespace cmudb

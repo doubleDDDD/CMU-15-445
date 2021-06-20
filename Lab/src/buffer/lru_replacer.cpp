@@ -8,35 +8,41 @@
 
 namespace cmudb {
 
-template <typename T> LRUReplacer<T>::LRUReplacer() : size_(0) {
+template <typename T> 
+LRUReplacer<T>::LRUReplacer() : size_(0) 
+{
     head_ = new node();  /* LRU初始化一个节点，它会随着程序的运行而增加 */
     tail_ = head_;
 }
 
-template <typename T> LRUReplacer<T>::~LRUReplacer() = default;
+template <typename T> 
+LRUReplacer<T>::~LRUReplacer() = default;
 
 /**
 * Insert value into LRU
 */
-template <typename T> void LRUReplacer<T>::Insert(const T &value) {
-    std::lock_guard<std::mutex> lock(mutex_);
+template <typename T> 
+void LRUReplacer<T>::Insert(const T &value) 
+{
+    std::lock_guard<std::mutex> lock(mutex_);  // get lock，函数结束释放锁
 
-    auto it = table_.find(value);  /* table is a map */
+    /* table is a map, space for time */
+    auto it = table_.find(value);
     if(it == table_.end()) {
-        /* 直接加到队尾，队尾是最先访问的 */
+        // Page 不在 LRU list 中
         tail_->next = new node(value, tail_);
         tail_ = tail_->next;
-        table_.emplace(value, tail_);
+        table_.emplace(value, tail_);  // push_back 的作用
         ++size_;
     } else {
-        /* 该页面在队中，需要调整位置 */
-        if(it->second != tail_) {
+        /* page 位于 LRU list 中，需要调整位置 */
+        if(it->second != tail_) 
+        {
             // 先从原位置移除
             node *pre = it->second->pre;
             node *cur = pre->next;
             pre->next = std::move(cur->next);
             pre->next->pre = pre;
-
             // 再放到尾部
             cur->pre = tail_;
             tail_->next = std::move(cur);
