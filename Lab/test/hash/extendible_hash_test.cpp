@@ -18,9 +18,9 @@ TEST(ExtendibleHashTest, VerySampleTest) {
         new ExtendibleHash<int, std::string>(3);
 
     // insert several key/value pairs
-    test->Insert(11, "a");
+    test->Insert(10, "a");
     test->Insert(21, "b");
-    test->Insert(31, "c");
+    test->Insert(32, "c");
     test->Insert(41, "d");
     test->Insert(51, "e");
     test->Insert(61, "f");

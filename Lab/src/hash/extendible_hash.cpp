@@ -26,6 +26,9 @@
  * 全局depth决定了 array 的数量，2^depth=sizeof(array)
  *
  * bucket_size_ has a fix value, for example, 50
+ *
+ * size_t position = HashKey(key) & ((1 << depth) - 1);
+ *  hashkey 的低位
  */
 namespace cmudb {
 
@@ -149,7 +152,14 @@ template <typename K, typename V>
 void ExtendibleHash<K, V>::Insert(const K &key, const V &value) 
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    /* hash函数 */
+    /**
+     * @brief hash 函数
+     * (1<<0)-1 = 0. 这谁来 & 都是 0 啊
+     * 所以最开始在没有达到预设的桶的阈值之后，所有的value都是被插到第一个桶中
+     * 超过之后，开始扩展桶
+     * 全局 depth++，然后开始取 hash key 的最后一位，理论上是能够把已有的key平均分到两个桶中的
+     *  hash func确实发生了变化
+     */
     size_t bucket_id = HashKey(key) & ((1 << depth) - 1);
     // std::cout << "Insert: key is:" << key << " depth: "
     //     << depth << " hashkey: " << HashKey(key) << " bucket id: " << bucket_id << std::endl;
@@ -177,14 +187,13 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value)
 
     /**
      * @brief 当桶的长度超过预设的值，这里预设值为50，将分裂桶
-     * 有一个负载因子
+     * 如果是第一次分裂桶，之前的桶深度是 0
      */
     if(bucket->items.size() > bucket_size_) 
     {
         // Show();  // for debug
-        auto old_index = bucket->id;
-        auto old_depth = bucket->depth;
-
+        auto old_index = bucket->id;  // first split 0
+        auto old_depth = bucket->depth;  // first split 0
         /**
          * @brief 裂生成一个新桶，一般后面都要扩展一倍的目录
          * bucket 被分裂的 bucket，即该桶的大小超过了长度
@@ -260,52 +269,61 @@ ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b)
     /**
      * 分裂目标桶 b，以 ref 的形式接受，这里直接操作调用函数上的 b，即目标分裂的桶
      * 先利用 make_shared 创建一个新桶
-     *  调用函数中也有这样的一个对象类型在接受 std::shared_ptr<Bucket> new_bucket = split(bucket);
-     * new bucket 的 id 是 0，深度与旧桶一致
+     *  调用函数中也有这样的一个对象类型在接受 std::shared_ptr<Bucket> new_bucket = split(bucket);s
      */
     // std::cout << "split" << std::endl;
     // auto p = std::make_shared<int>(10); 可以理解为 int 类型的参数是 10
-    auto res = std::make_shared<Bucket>(0, b->depth);  // 括号里是指针类的参数，会返回给被调用函数
-
-    while(res->items.empty()) 
+    /**
+     * @brief 括号里是指针类的参数，会返回给被调用函数
+     * 如果 rehash 失败的话（没有）
+     */
+    auto res = std::make_shared<Bucket>(0, b->depth);  // res 是新桶
+    while(res->items.empty())
     {
-        b->depth++;
-        res->depth++;
-        std::cout << "extend depth, new depth: " << b->depth << std::endl;
+        b->depth++;  // firstly is 1 now
+        res->depth++;  // firstly is 1 now
+        // std::cout << "extend depth, new depth: " << b->depth << std::endl;
 
-        /* 遍历旧桶 */
+        /**
+         * @brief 遍历桶，在 for 的过程中会修改数据，这里展示了一个比较巧妙的方式
+         * 现在已经在一个桶中的元素，其 hashkey 的低 depth 位一定是相等的
+         * 所以在多向前要一位，那只能是一分为二，只有在一分为2不ok的情况下，才会继续向前再取一位
+         */
         for(auto it = b->items.begin(); it != b->items.end();) {
+            // hashkey 不为0, 由旧桶 move to 新桶
             if (HashKey(it->first) & (1 << (b->depth - 1))) {
-                std::cout << "To new bucket, key is: " << it->first << " Hashkey is: "
-                    << HashKey(it->first) << " & value is: " << (1 << (b->depth - 1)) << std::endl;
+                // std::cout << "To new bucket, key is: " << it->first << " Hashkey is: "
+                //     << HashKey(it->first) << " & value is: " << (1 << (b->depth - 1)) << std::endl;
                 res->items.insert(*it);
-                res->id = HashKey(it->first) & ((1 << b->depth) - 1);
-                std::cout << "  New bucket id: " << res->id <<std::endl;
+                res->id = HashKey(it->first) & ((1 << b->depth) - 1);  // 增长桶的下标
+                // std::cout << "  New bucket id: " << res->id <<std::endl;
                 it = b->items.erase(it);
             } else {
-                std::cout << "Stay in old bucket: " << b->id << " key is: " << it->first << " Hashkey is: "
-                    << HashKey(it->first) << " & value is: " << (1 << (b->depth - 1)) << std::endl;
+                // std::cout << "Stay in old bucket: " << b->id << " key is: " << it->first << " Hashkey is: "
+                //     << HashKey(it->first) << " & value is: " << (1 << (b->depth - 1)) << std::endl;
                 ++it;
             }
         }
 
-        /* 遍历必须保证能够确实新桶旧桶中都有数据，否则就翻倍，即增加 depth */
-        if(b->items.empty()) {
-            b->items.swap(res->items);  /* 交换 */
-            b->id = res->id;  /* 交换之后 id 是有增长的 */
-            std::cout << "After swap: " << std::endl;
-            Show();
-            std::cout << "New bucket" << std::endl;
-
-            std::cout 
-                << " id is: " << res->id 
-                << " depth is: " << res->depth << " keys: ";
-
-            std::map<K, V> tmp = res->items;
-            for(auto it = tmp.begin(); it != tmp.end(); ++it){
-                std::cout << it->first << " ";
-            }
-            std::cout << std::endl;
+        /**
+         * @brief 如果 depth++ 后，是要取所有 key 的后两位去分配桶，如果忽然发现旧桶中的数据全部被 rehash 了
+         */
+        if(b->items.empty()) 
+        {
+            // 先恢复原状
+            b->items.swap(res->items);
+            b->id = res->id;  // 能得到一个桶下标的最大值
+            // std::cout << "After swap: " << std::endl;
+            // Show();
+            // std::cout << "New bucket" << std::endl;
+            // std::cout 
+            //     << " id is: " << res->id 
+            //     << " depth is: " << res->depth << " keys: ";
+            // std::map<K, V> tmp = res->items;
+            // for(auto it = tmp.begin(); it != tmp.end(); ++it){
+            //     std::cout << it->first << " ";
+            // }
+            // std::cout << std::endl;
         }
     }
 
@@ -314,7 +332,8 @@ ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b)
 }
 
 template <typename K, typename V>
-void ExtendibleHash<K, V>::Show() const {
+void ExtendibleHash<K, V>::Show() const 
+{
     size_t i;
     auto size = bucket_.size();
 
