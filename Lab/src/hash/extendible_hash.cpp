@@ -17,6 +17,15 @@
  * https://cloud.tencent.com/developer/article/1020586
  * 数组的个数是2的D次方，桶的容量是2的L次方，D称为全局深度，L称为局部深度
  * 假设D=2,L=2。那么一个桶的最大数据量就是4，如果insert的时候，数据超过了4，就需要分裂新的桶
+ * 
+ * hash 函数与桶的 depth 是有关的
+ * 所以分裂新桶后，depth 会发生变化, hash func is change, 所以 element 会被重新分配到不同的桶中
+ *
+ * 可扩展 hash 表示 buffer_pool_manager 在构造是创建的
+ *
+ * 全局depth决定了 array 的数量，2^depth=sizeof(array)
+ *
+ * bucket_size_ has a fix value, for example, 50
  */
 namespace cmudb {
 
@@ -26,11 +35,12 @@ namespace cmudb {
  */
 template <typename K, typename V>
 ExtendibleHash<K, V>::ExtendibleHash(size_t size) 
-    : bucket_size_(size), bucket_count_(0), pair_count_(0), depth(0) {
+    : bucket_size_(size), bucket_count_(0), pair_count_(0), depth(0) 
+{
     /**
      * @brief 
      * emplace_back 向vector尾端插入元素，与push_back有所区别，效率更高一些
-     * 全局depth的初始值是0，所以数组长度仅为1
+     * 全局 depth 的初始值是0，所以数组长度仅为 1
      * depth=0, array size=1  // depth=0的时候，hash result必然是0
      * depth=1, array size=2  // depth=1的时候，hash result是HashKey的最后一位
      * depth=2, array size=4  // 依次类推，hash result 是 HashKey 的低 depth 位
@@ -46,7 +56,8 @@ ExtendibleHash<K, V>::ExtendibleHash(size_t size)
  * hash后的这个结果差别还蛮大的
  */
 template <typename K, typename V>
-size_t ExtendibleHash<K, V>::HashKey(const K &key) {
+size_t ExtendibleHash<K, V>::HashKey(const K &key)
+{
     return std::hash<K>()(key);
 }
 
@@ -55,7 +66,8 @@ size_t ExtendibleHash<K, V>::HashKey(const K &key) {
  * NOTE: you must implement this function in order to pass test
  */
 template <typename K, typename V>
-int ExtendibleHash<K, V>::GetGlobalDepth() const {
+int ExtendibleHash<K, V>::GetGlobalDepth() const 
+{
     /* 全局桶深度 */
     std::lock_guard<std::mutex> lock(mutex_);  /* 防止其它线程的修改，保证并发安全 */
     return depth;
@@ -66,7 +78,8 @@ int ExtendibleHash<K, V>::GetGlobalDepth() const {
  * NOTE: you must implement this function in order to pass test
  */
 template <typename K, typename V>
-int ExtendibleHash<K, V>::GetLocalDepth(int bucket_id) const {
+int ExtendibleHash<K, V>::GetLocalDepth(int bucket_id) const 
+{
     /** 
     * bucket_id 就是数组的偏移
     * 返回给定偏移的局部深度 
@@ -82,7 +95,8 @@ int ExtendibleHash<K, V>::GetLocalDepth(int bucket_id) const {
  * helper function to return current number of bucket in hash table
  */
 template <typename K, typename V>
-int ExtendibleHash<K, V>::GetNumBuckets() const {
+int ExtendibleHash<K, V>::GetNumBuckets() const 
+{
     /* 返回桶总数 */
     std::lock_guard<std::mutex> lock(mutex_);
     return bucket_count_;
@@ -93,7 +107,8 @@ int ExtendibleHash<K, V>::GetNumBuckets() const {
  * 查找桶里的哈希表是否有该值
  */
 template <typename K, typename V>
-bool ExtendibleHash<K, V>::Find(const K &key, V &value) {
+bool ExtendibleHash<K, V>::Find(const K &key, V &value) 
+{
     std::lock_guard<std::mutex> lock(mutex_);
     size_t position = HashKey(key) & ((1 << depth) - 1);
 
@@ -112,7 +127,8 @@ bool ExtendibleHash<K, V>::Find(const K &key, V &value) {
  * 移除元素
  */
 template <typename K, typename V>
-bool ExtendibleHash<K, V>::Remove(const K &key) {
+bool ExtendibleHash<K, V>::Remove(const K &key) 
+{
     std::lock_guard<std::mutex> lock(mutex_);
     size_t position = HashKey(key) & ((1 << depth) - 1);
     size_t cnt = 0;
@@ -130,39 +146,49 @@ bool ExtendibleHash<K, V>::Remove(const K &key) {
  * Split & Redistribute bucket when there is overflow and if necessary increase
  */
 template <typename K, typename V>
-void ExtendibleHash<K, V>::Insert(const K &key, const V &value) {
+void ExtendibleHash<K, V>::Insert(const K &key, const V &value) 
+{
     std::lock_guard<std::mutex> lock(mutex_);
-    size_t bucket_id = HashKey(key) & ((1 << depth) - 1);  /* hash后的depth位 */
-
+    /* hash函数 */
+    size_t bucket_id = HashKey(key) & ((1 << depth) - 1);
     // std::cout << "Insert: key is:" << key << " depth: "
     //     << depth << " hashkey: " << HashKey(key) << " bucket id: " << bucket_id << std::endl;
-
     if(bucket_[bucket_id] == nullptr) {
+        /**
+         * @brief 数组中的每一个元素是一个指向 Bucket 的智能指针
+         * hash table 的类是没有析构函数
+         * 拥有一个 std::map 的资源
+         */
         bucket_[bucket_id] = std::make_shared<Bucket>(bucket_id, depth);
         ++bucket_count_;
     }
 
     auto bucket = bucket_[bucket_id];
 
-    /* update */
+    /* update, 比如说一个代表 page id 的 page change  */
     if(bucket->items.find(key) != bucket->items.end()) {
         bucket->items[key] = value;
         return;
     }
 
-    /* insert */
+    /* insert，STL map 的 insert 函数，std::map 是有序的 map，对key按照默认规则排序 */
     bucket->items.insert({key, value});
     ++pair_count_;
 
-    /* 当桶的长度超过预设的值，这里预设值为50，将分裂桶 */
-    if(bucket->items.size() > bucket_size_) {
-        // for debug
-        Show();
-
+    /**
+     * @brief 当桶的长度超过预设的值，这里预设值为50，将分裂桶
+     * 有一个负载因子
+     */
+    if(bucket->items.size() > bucket_size_) 
+    {
+        // Show();  // for debug
         auto old_index = bucket->id;
         auto old_depth = bucket->depth;
 
-        /* 分裂生成一个新桶，一般后面都要扩展一倍的目录 */
+        /**
+         * @brief 裂生成一个新桶，一般后面都要扩展一倍的目录
+         * bucket 被分裂的 bucket，即该桶的大小超过了长度
+         */
         std::shared_ptr<Bucket> new_bucket = split(bucket);
 
         if(new_bucket == nullptr) {
@@ -229,17 +255,20 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value) {
  */
 template <typename K, typename V>
 std::shared_ptr<typename ExtendibleHash<K, V>::Bucket>
-ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b) {
+ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b) 
+{
     /**
-     * 先利用make_shared创建一个新桶
+     * 分裂目标桶 b，以 ref 的形式接受，这里直接操作调用函数上的 b，即目标分裂的桶
+     * 先利用 make_shared 创建一个新桶
+     *  调用函数中也有这样的一个对象类型在接受 std::shared_ptr<Bucket> new_bucket = split(bucket);
      * new bucket 的 id 是 0，深度与旧桶一致
-     * b代表的是旧桶
      */
     // std::cout << "split" << std::endl;
     // auto p = std::make_shared<int>(10); 可以理解为 int 类型的参数是 10
-    auto res = std::make_shared<Bucket>(0, b->depth);  // 括号里是指针类的参数
+    auto res = std::make_shared<Bucket>(0, b->depth);  // 括号里是指针类的参数，会返回给被调用函数
 
-    while(res->items.empty()) {
+    while(res->items.empty()) 
+    {
         b->depth++;
         res->depth++;
         std::cout << "extend depth, new depth: " << b->depth << std::endl;
@@ -317,7 +346,7 @@ void ExtendibleHash<K, V>::Show() const {
 //     return os ;
 // }
 
-
+// 为了模板类的实现能够与 .h 分离
 template class ExtendibleHash<page_id_t, Page *>;
 template class ExtendibleHash<Page *, std::list<Page *>::iterator>;
 // test purpose

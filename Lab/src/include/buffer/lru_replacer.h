@@ -12,7 +12,6 @@
 #include <unordered_map>
 #include <mutex>
 #include <memory>
-
 #include "buffer/replacer.h"
 
 namespace cmudb {
@@ -34,7 +33,7 @@ class LRUReplacer : public Replacer<T> {
 public:
     // do not change public interface
     LRUReplacer();
-    ~LRUReplacer();
+    ~LRUReplacer();  // 非基类的虚函数可以不写成 virtual
 
     // disable copy
     LRUReplacer(const LRUReplacer &) = delete;

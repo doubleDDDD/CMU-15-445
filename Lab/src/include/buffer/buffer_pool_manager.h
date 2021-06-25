@@ -49,13 +49,12 @@ public:
 
 private:
 	size_t pool_size_;  // buffer pool 中 Page 的数量
-	Page *pages_;  // 所 hold 的存储空间是一个 Page 数组
+	Page *pages_;  // 所 hold 的存储空间是一个 Page 数组，用户态的空间 vm_area
 	std::list<Page *> *free_list_;
-	HashTable<page_id_t, Page *> *page_table_;
+	HashTable<page_id_t, Page *> *page_table_;  // page id 到 Page 对象的 kv
 	Replacer<Page *> *replacer_;
 	DiskManager *disk_manager_;
 	LogManager *log_manager_;
-	std::mutex mutex_;
+	std::mutex mutex_;  // 用来加锁的
 };
-
 } // namespace cmudb

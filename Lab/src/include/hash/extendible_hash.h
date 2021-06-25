@@ -31,37 +31,32 @@ class ExtendibleHash : public HashTable<K, V> {
         Bucket() = default;
         /* explicit防止类型转换的构造函数 */
         explicit Bucket(size_t i, int d) : id(i), depth(d) {}
-        std::map<K, V> items;          // key-value pairs
+        /**
+         * @brief key-value pairs
+         * 每一个桶上的kv是map组织的
+         */
+        std::map<K, V> items;
         size_t id = 0;                 // id of Bucket
         int depth = 0;                 // depth of local bucket
     };
 public:
-    // 构造函数
+    // 构造函数, 使用智能指针，所以没有析构函数去释放一些 map 对象等
     ExtendibleHash(size_t size);
-
     // 返回桶的偏移量
     size_t HashKey(const K &key);
-
     // 查找桶里的哈希表是否有该值
     bool Find(const K &key, V &value);
-
     // 插入元素
     void Insert(const K &key, const V &value);
-
     // 移除元素
     bool Remove(const K &key);
-
     size_t Size() const { return pair_count_; }
-
     // 返回哈希表当前深度
     int GetGlobalDepth() const;
-
     // 返回给定偏移的局部深度
     int GetLocalDepth(int bucket_id) const;
-
     // 返回桶总数
     int GetNumBuckets() const;
-
     // show hash table
     void Show() const;
 
@@ -72,19 +67,12 @@ public:
     // }
 
 private:
-    mutable std::mutex mutex_;      // 注意要加mutable
-
+    mutable std::mutex mutex_;      // 注意要加 mutable
     const size_t bucket_size_;    // 每个桶能容纳的元素个数
-
     int bucket_count_;   // 在用的桶数
-
     size_t pair_count_;     // 哈希表中键值对的个数
-
     int depth;              // 全局的桶的深度
-
     std::vector<std::shared_ptr<Bucket>> bucket_;    // 桶数组，智能指针
-
     std::shared_ptr<Bucket> split(std::shared_ptr<Bucket> &); // 分裂新桶
 };
-
 } // namespace cmudb
