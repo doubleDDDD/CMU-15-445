@@ -239,7 +239,7 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value)
              * 先把目标桶以及split出来的新桶
              */
             bucket_[bucket->id] = bucket;
-            bucket_[new_bucket->id] = new_bucket;
+            bucket_[new_bucket->id] = new_bucket;  // 一定位于新增 slot
 #ifdef EX_HASH_DEBUG
             std::printf(
                 "after split, ready to extend the num of array\n"
@@ -333,7 +333,7 @@ ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b)
                     << ", org key id: " << it->first 
                     << ", Hash: " << HashKey(it->first) 
                     << ", & v: " << (1 << (b->depth - 1))
-                    << ", hash & v: " << 1 << std::endl;
+                    << ", new id: " << res->id << std::endl;
 #endif
                 it = b->items.erase(it);
             } else {
@@ -343,7 +343,7 @@ ExtendibleHash<K, V>::split(std::shared_ptr<Bucket> &b)
                     << ", org key id: " << it->first 
                     << ", Hash: " << HashKey(it->first) 
                     << ", & v: " << (1 << (b->depth - 1)) 
-                    << ", Hash & v: " << 0 << std::endl;
+                    << ", org id: " << 0 << std::endl;
 #endif
                 ++it;
             }
