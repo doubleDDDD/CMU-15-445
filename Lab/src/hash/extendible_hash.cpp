@@ -14,21 +14,21 @@
  * |——| -> map
  * |——| -> map
  * |——| -> map
- * https://cloud.tencent.com/developer/article/1020586
- * 数组的个数是2的D次方，桶的容量是2的L次方，D称为全局深度，L称为局部深度
- * 假设D=2,L=2。那么一个桶的最大数据量就是4，如果insert的时候，数据超过了4，就需要分裂新的桶
- * 
- * hash 函数与桶的 depth 是有关的
- * 所以分裂新桶后，depth 会发生变化, hash func is change, 所以 element 会被重新分配到不同的桶中
  *
  * 可扩展 hash 表示 buffer_pool_manager 在构造是创建的
  *
- * 全局depth决定了 array 的数量，2^depth=sizeof(array)
+ * 全局 depth 决定了 array 的数量，2^depth=sizeof(array)
  *
- * bucket_size_ has a fix value, for example, 50
- *
- * size_t position = HashKey(key) & ((1 << depth) - 1);
- *  hashkey 的低位
+ * 简单来说，当一个桶的容量超过预设值之后，是需要分裂新桶的，新桶的id无非就是旧桶的2^depth+1
+ * 所以新桶与旧桶之间的step是固定的
+ * 分裂完成之后，之前老桶中的 value 在新桶与老桶之间分配
+ * 如果桶的分裂会造成全局 depth 的增大，那么除了刚被分裂出的新桶以及被分裂的老桶（depth已经是最新的了）
+ * 其它所有的桶都会收到影响
+ *      在全局 depth 增大并扩展 slot 数组之后，要保证这个时候的读操作是正常的才可以
+ * 所有被影响到的桶都需要将自己hash到新的 slot 数组中，即被加倍部分
+ *      加入有一个key=2，在取低1位时，slot id is 0,在取低2位时，slot id is 2
+ *      如果之前扩展 slot 没有对它们造成影响，那么全局 depth 的增大会导致读取 key=2 的value的时候读个空
+ *      所以之前自己一直没有太看明白的地方就是这里，理解了这里就知道这个可扩展的 hash 表到底是在干啥了
  */
 namespace cmudb {
 
@@ -43,11 +43,6 @@ ExtendibleHash<K, V>::ExtendibleHash(size_t size)
     /**
      * @brief 
      * emplace_back 向vector尾端插入元素，与push_back有所区别，效率更高一些
-     * 全局 depth 的初始值是0，所以数组长度仅为 1
-     * depth=0, array size=1  // depth=0的时候，hash result必然是0
-     * depth=1, array size=2  // depth=1的时候，hash result是HashKey的最后一位
-     * depth=2, array size=4  // 依次类推，hash result 是 HashKey 的低 depth 位
-     * ...
      */
     bucket_.emplace_back(new Bucket(0, 0));
     bucket_count_ = 1;
@@ -55,8 +50,6 @@ ExtendibleHash<K, V>::ExtendibleHash(size_t size)
 
 /*
  * helper function to calculate the hashing address of input key
- * the result of HashKey(key) & ((1 << depth) - 1) is like
- * hash后的这个结果差别还蛮大的
  */
 template <typename K, typename V>
 size_t ExtendibleHash<K, V>::HashKey(const K &key)
@@ -152,15 +145,6 @@ template <typename K, typename V>
 void ExtendibleHash<K, V>::Insert(const K &key, const V &value) 
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    /**
-     * @brief hash 函数
-     * (1<<0)-1 = 0. 这谁来 & 都是 0 啊
-     * 所以最开始在没有达到预设的桶的阈值之后，所有的 value 都是被插到第一个桶中
-     * 超过之后，开始扩展桶
-     * 全局 depth++，然后开始取 hash key 的最后一位，理论上是能够把已有的key平均分到两个桶中的
-     *  hash func确实发生了变化
-     * if (1 << depth) - 1 is 1, 奇数与它与是 1，偶数则为 0
-     */
     size_t bucket_id = HashKey(key) & ((1 << depth) - 1);
 #ifdef EX_HASH_DEBUG
     std::printf(
@@ -193,7 +177,7 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value)
     /**
      * @brief 当桶的长度超过预设的值，这里预设值为50，将分裂桶
      * 如果单桶的值没有超过一个预设值，则就是一个简单的 insert，insert 之后就完事了
-     * 如果是第一次分裂桶，之前的桶深度是 0
+     * 预设值与桶的局部深度没有什么联系
      */
     if(bucket->items.size() > bucket_size_) 
     {
@@ -221,7 +205,9 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value)
          * 若插入的桶的局部深度大于全局深度，则要扩展桶数组
          */
         if(bucket->depth > depth) {
+#ifdef EX_HASH_DEBUG
             auto old_depth = depth;
+#endif            
             auto size = bucket_.size();  // 当前的 array size, bucket_是一个 vector
             /**
              * @brief 看看大了2的几次方出去
@@ -231,8 +217,9 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value)
             depth = bucket->depth;
             /* 调整大小后的 array size */
             bucket_.resize(bucket_.size() * factor);
+#ifdef EX_HASH_DEBUG
             size_t newsize = bucket_.size();
-
+#endif
             /**
              * @brief array 扩展了，但是 kv 对还在之前 array 的 slot 中
              * bucket以及new_bucket是指向Bucket(std::map)的指针
@@ -250,32 +237,54 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value)
 #endif
             /**
              * @brief size 是调整之前的大小
+             * 由于全局 depth 的增大，之前的内容需要 rehash 到扩展后的桶中
              * 没反应过来，扩展 array 的大小之后，调整后的这部分内容下面的代码不涉及
              */
             for(size_t i=0;i<size;++i) {
                 if(bucket_[i]) {
+                    // exist rehash
                     if(i < bucket_[i]->id){
+                        // 这个地方有点看不明白，感觉不是很可能，先这样写，遇到了看下到底是怎么回事
+                        // std::printf("error, i do not understand\n");
+                        // exit(-1);
+#ifdef EX_HASH_DEBUG
                         std::cout << "reset index: " << i << std::endl;
-                        bucket_[i].reset();  /* 一定已经被copy到另一个桶中了，智能指针的reset方法，这里已经被rehash掉了 */
+#endif
+                        bucket_[i].reset();
                     } else {
+                        /**
+                         * @brief rehash 意味着多出来的位是1，所以相对于原 index 的增长量就是 2^depth
+                         * 深度为3，意味着slot的数量是 2^4
+                         * 这里的意义在于，一旦 slot 数组被扩展后，保证一定不会为空
+                         *      否则在全局 depth 比较大的情况下，将 hash GG
+                         */
                         auto step = 1 << bucket_[i]->depth;
-                        std::printf("i:%ld,step:%d\n", i, step);
+                        // std::printf("i:%ld,step:%d\n", i, step);
                         for(size_t j = i + step; j < bucket_.size(); j += step) {
-                            std::printf("rehash,i:%ld,j:%ld\n",i,j);
                             bucket_[j] = bucket_[i];  /* rehash */
+#ifdef EX_HASH_DEBUG
+                            std::printf("rehash,i:%ld,j:%ld,bucketid:%ld\n",i,j, bucket_[j]->id);
+#endif
                         }
                     }
                 }
             }
         } else {
-            std::printf("i do not know\n");
+#ifdef EX_HASH_DEBUG
+            std::printf("there is no add of array!\n");
+#endif
             for (size_t i = old_index; i < bucket_.size(); i += (1 << old_depth)) {
                 bucket_[i].reset();
             }
-
+#ifdef EX_HASH_DEBUG
+            std::printf("SS! old index %ld, old depth: %d, bucket size:%ld\n", old_index, old_depth, bucket_.size());
+            Show();
+            std::printf("SS\n");
+#endif
             bucket_[bucket->id] = bucket;
             bucket_[new_bucket->id] = new_bucket;
 
+            /* 这里是在同步变化,同样是为了保证在全局 depth 增大后，能够正常读取 */
             auto step = 1 << bucket->depth;
             for (size_t i = bucket->id + step; i < bucket_.size(); i += step) {
                 bucket_[i] = bucket;
@@ -285,6 +294,11 @@ void ExtendibleHash<K, V>::Insert(const K &key, const V &value)
             }
         }
     }
+#ifdef EX_HASH_DEBUG
+    std::printf("in the end of insert!\n");
+    Show();
+    std::printf("\n");
+#endif
 }
 
 /**

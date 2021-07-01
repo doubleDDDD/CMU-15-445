@@ -18,7 +18,7 @@
 
 #include "hash/hash_table.h"
 
-#define EX_HASH_DEBUG
+// #define EX_HASH_DEBUG
 namespace cmudb {
 
 /**
