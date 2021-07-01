@@ -9,17 +9,20 @@ namespace cmudb {
  * Helper methods to get/set page type
  * Page type enum class is defined in b_plus_tree_page.h
  */
-bool BPlusTreePage::IsLeafPage() const {
-  return page_type_ == IndexPageType::LEAF_PAGE;
+bool
+BPlusTreePage::IsLeafPage() const {
+    return page_type_ == IndexPageType::LEAF_PAGE;
 }
 
 // only root has no parent
-bool BPlusTreePage::IsRootPage() const {
-  return parent_page_id_ == INVALID_PAGE_ID;
+bool
+BPlusTreePage::IsRootPage() const {
+    return parent_page_id_ == INVALID_PAGE_ID;
 }
 
-void BPlusTreePage::SetPageType(IndexPageType page_type) {
-  page_type_ = page_type;
+void
+BPlusTreePage::SetPageType(IndexPageType page_type) {
+    page_type_ = page_type;
 }
 
 /*

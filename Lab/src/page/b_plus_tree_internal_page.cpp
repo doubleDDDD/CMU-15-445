@@ -19,22 +19,24 @@ namespace cmudb
  */
 // 每次new一个页面后需要自己调用这个函数进行初始化
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    Init(page_id_t page_id, page_id_t parent_id)
+void 
+BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Init(page_id_t page_id, page_id_t parent_id)
 {
-  // set page type
-  SetPageType(IndexPageType::INTERNAL_PAGE);
-  // set current size: 1 for the first invalid key
-  SetSize(1);
-  // set page id
-  SetPageId(page_id);
-  // set parent id
-  SetParentPageId(parent_id);
-
-  // set max page size, header is 24bytes
-  int size = (PAGE_SIZE - sizeof(BPlusTreeInternalPage)) /
-             (sizeof(KeyType) + sizeof(ValueType));
-  SetMaxSize(size);
+    // set page type
+    SetPageType(IndexPageType::INTERNAL_PAGE);
+    // set current size: 1 for the first invalid key
+    SetSize(1);
+    // set page id
+    SetPageId(page_id);
+    // set parent id
+    SetParentPageId(parent_id);
+    /**
+     * @brief set max page size, header is 24bytes
+     * izeof(BPlusTreeInternalPage) is the header
+     * 剩下的空间就用来连续的存放数组，数组元素是kv
+     */
+    int size = (PAGE_SIZE - sizeof(BPlusTreeInternalPage)) / (sizeof(KeyType) + sizeof(ValueType));
+    SetMaxSize(size);
 }
 
 /*
@@ -42,20 +44,18 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
  * array offset)
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-KeyType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    KeyAt(int index) const
+KeyType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::KeyAt(int index) const
 {
-  // replace with your own code
-  assert(0 <= index && index < GetSize());
-  return array[index].first;
+    // replace with your own code
+    assert(0 <= index && index < GetSize());
+    return array[index].first;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    SetKeyAt(int index, const KeyType &key)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::SetKeyAt(int index, const KeyType &key)
 {
-  assert(0 <= index && index < GetSize());
-  array[index].first = key;
+    assert(0 <= index && index < GetSize());
+    array[index].first = key;
 }
 
 /*
@@ -63,17 +63,13 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
  * equals to input "value"
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-int BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    ValueIndex(const ValueType &value) const
+int BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::ValueIndex(const ValueType &value) const
 {
-  for (int i = 0; i < GetSize(); ++i)
-  {
-    if (array[i].second == value)
+    for (int i = 0; i < GetSize(); ++i)
     {
-      return i;
+        if (array[i].second == value) { return i; }
     }
-  }
-  return GetSize();
+    return GetSize();
 }
 
 /*
@@ -81,11 +77,10 @@ int BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
  * offset)
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    ValueAt(int index) const
+ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::ValueAt(int index) const
 {
-  assert(0 <= index && index < GetSize());
-  return array[index].second;
+    assert(0 <= index && index < GetSize());
+    return array[index].second;
 }
 
 /*
@@ -93,11 +88,10 @@ ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
  * offset)
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    SetValueAt(int index, const ValueType &value)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::SetValueAt(int index, const ValueType &value)
 {
-  assert(0 <= index && index < GetSize());
-  array[index].second = value;
+    assert(0 <= index && index < GetSize());
+    array[index].second = value;
 }
 
 /*****************************************************************************
@@ -117,40 +111,28 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
  *   dir = array[i].second;
  * }
  * return dir;
+ * 本例中返回 page_id
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    Lookup(const KeyType &key, const KeyComparator &comparator) const
+ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Lookup(
+    const KeyType &key, const KeyComparator &comparator) const
 {
-  assert(GetSize() > 1);
-  if (comparator(key, array[1].first) < 0)
-  {
-    return array[0].second;
-  }
-  else if (comparator(key, array[GetSize() - 1].first) >= 0)
-  {
-    return array[GetSize() - 1].second;
-  }
+    /* 要查找的key小于第一个或大于最后一个，就直接返回了，否则在一个 node 内部依然需要一些查找方法 */
+    assert(GetSize() > 1);
+    if (comparator(key, array[1].first) < 0){ return array[0].second; }
+    else if (comparator(key, array[GetSize() - 1].first) >= 0)
+    { return array[GetSize() - 1].second; }
 
-  // 二分查找
-  int low = 1, high = GetSize() - 1, mid;
-  while (low < high && low + 1 != high)
-  {
-    mid = low + (high - low) / 2;
-    if (comparator(key, array[mid].first) < 0)
+    // 二分查找
+    int low = 1, high = GetSize() - 1, mid;
+    while (low < high && low + 1 != high)
     {
-      high = mid;
+        mid = low + (high - low) / 2;
+        if (comparator(key, array[mid].first) < 0) { high = mid; }
+        else if (comparator(key, array[mid].first) > 0) { low = mid; }
+        else { return array[mid].second; }
     }
-    else if (comparator(key, array[mid].first) > 0)
-    {
-      low = mid;
-    }
-    else
-    {
-      return array[mid].second;
-    }
-  }
-  return array[low].second;
+    return array[low].second;
 }
 
 /*****************************************************************************
