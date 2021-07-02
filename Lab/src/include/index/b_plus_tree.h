@@ -7,6 +7,13 @@
  * (2) support insert & remove
  * (3) The structure should shrink and grow dynamically
  * (4) Implement index iterator for range scan
+ * b+tree 本身构成了index, 与数据库中的table是对标的
+ *  b+tree 本身就是排好序的指针，不含有任何的数据
+ * 磁盘中的指针是如何实现的呢？
+ *  看到这里就理解了，磁盘中能够表现出来的只有文件
+ * 能作为指针的只有文件的偏移，所谓的指针实际上就是一个逻辑上的页号
+ *      再写一次，所谓的指针就是一个逻辑上的页号，磁盘文件被视作了一个一维数组（数组元素就是 page 的大小）
+ *      页号就能够完全独立的指向一个page
  */
 
 #pragma once
@@ -29,104 +36,104 @@ enum class Operation { READONLY = 0, INSERT, DELETE };
 template <typename KeyType, typename ValueType, typename KeyComparator>
 class BPlusTree {
 public:
-  explicit BPlusTree(const std::string &name,
-                     BufferPoolManager *buffer_pool_manager,
-                     const KeyComparator &comparator,
-                     page_id_t root_page_id = INVALID_PAGE_ID);
+    explicit BPlusTree(const std::string &name,
+                    BufferPoolManager *buffer_pool_manager,
+                    const KeyComparator &comparator,
+                    page_id_t root_page_id = INVALID_PAGE_ID);
 
-  // Returns true if this B+ tree has no keys and values.
-  bool IsEmpty() const;
+    // Returns true if this B+ tree has no keys and values.
+    bool IsEmpty() const;
 
-  // Insert a key-value pair into this B+ tree.
-  bool Insert(const KeyType &key, const ValueType &value,
-              Transaction *transaction = nullptr);
+    // Insert a key-value pair into this B+ tree.
+    bool Insert(const KeyType &key, const ValueType &value, 
+                    Transaction *transaction = nullptr);
 
-  // Remove a key and its value from this B+ tree.
-  void Remove(const KeyType &key, Transaction *transaction = nullptr);
+    // Remove a key and its value from this B+ tree.
+    void Remove(const KeyType &key, Transaction *transaction = nullptr);
 
-  // return the value associated with a given key
-  bool GetValue(const KeyType &key, std::vector<ValueType> &result,
-                Transaction *transaction = nullptr);
+    // return the value associated with a given key
+    bool GetValue(const KeyType &key, std::vector<ValueType> &result,
+                    Transaction *transaction = nullptr);
 
-  // index iterator
-  IndexIterator<KeyType, ValueType, KeyComparator> Begin();
-  IndexIterator<KeyType, ValueType, KeyComparator> Begin(const KeyType &key);
+    // index iterator
+    IndexIterator<KeyType, ValueType, KeyComparator> Begin();
+    IndexIterator<KeyType, ValueType, KeyComparator> Begin(const KeyType &key);
 
-  // Print this B+ tree to stdout using a simple command-line
-  std::string ToString(bool verbose = false);
+    // Print this B+ tree to stdout using a simple command-line
+    std::string ToString(bool verbose = false);
 
-  // read data from file and insert one by one
-  void InsertFromFile(const std::string &file_name,
-                      Transaction *transaction = nullptr);
-
-  // read data from file and remove one by one
-  void RemoveFromFile(const std::string &file_name,
-                      Transaction *transaction = nullptr);
-
-  // expose for test purpose
-  BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *
-  FindLeafPage(const KeyType &key, bool leftMost = false,
-               Operation op = Operation::READONLY,
-               Transaction *transaction = nullptr);
-
-private:
-  class Checker {
-  public:
-    explicit Checker(BufferPoolManager *b) : buffer(b) {}
-    ~Checker() {
-      assert(buffer->Check());
-    }
-  private:
-    BufferPoolManager *buffer;
-  };
-
-  void StartNewTree(const KeyType &key, const ValueType &value);
-
-  bool InsertIntoLeaf(const KeyType &key, const ValueType &value,
-                      Transaction *transaction = nullptr);
-
-  void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key,
-                        BPlusTreePage *new_node,
+    // read data from file and insert one by one
+    void InsertFromFile(const std::string &file_name,
                         Transaction *transaction = nullptr);
 
-  template <typename N> N *Split(N *node);
+    // read data from file and remove one by one
+    void RemoveFromFile(const std::string &file_name,
+                        Transaction *transaction = nullptr);
 
-  template <typename N>
-  bool CoalesceOrRedistribute(N *node, Transaction *transaction = nullptr);
+    // expose for test purpose
+    BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *
+    FindLeafPage(const KeyType &key, bool leftMost = false,
+                Operation op = Operation::READONLY,
+                Transaction *transaction = nullptr);
 
-  /*
-  template <typename N>
-  bool Coalesce(N *&neighbor_node, N *&node,
-                BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *&parent,
-                int index, Transaction *transaction = nullptr);
-  */
-  template <typename N>
-  void Coalesce(N *neighbor_node, N *node,
-                BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent,
-                int index, Transaction *transaction = nullptr);
+private:
+    class Checker {
+    public:
+        explicit Checker(BufferPoolManager *b) : buffer(b) {}
+        ~Checker() {
+        assert(buffer->Check());
+        }
+    private:
+        BufferPoolManager *buffer;
+    };
 
-  template <typename N> void Redistribute(N *neighbor_node, N *node, int index);
+    void StartNewTree(const KeyType &key, const ValueType &value);
 
-  bool AdjustRoot(BPlusTreePage *node);
+    bool InsertIntoLeaf(const KeyType &key, const ValueType &value,
+                        Transaction *transaction = nullptr);
 
-  void UpdateRootPageId(bool insert_record = false);
+    void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key,
+                            BPlusTreePage *new_node,
+                            Transaction *transaction = nullptr);
 
-  // unlock all parents
-  void UnlockUnpinPages(Operation op, Transaction *transaction);
+    template <typename N> N *Split(N *node);
 
-  template <typename N>
-  bool isSafe(N *node, Operation op);
+    template <typename N>
+    bool CoalesceOrRedistribute(N *node, Transaction *transaction = nullptr);
 
-  inline void lockRoot() { mutex_.lock(); }
-  inline void unlockRoot() { mutex_.unlock(); }
+    /*
+    template <typename N>
+    bool Coalesce(N *&neighbor_node, N *&node,
+                    BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *&parent,
+                    int index, Transaction *transaction = nullptr);
+    */
+    template <typename N>
+    void Coalesce(N *neighbor_node, N *node,
+                    BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent,
+                    int index, Transaction *transaction = nullptr);
 
-  // member variable
-  std::string index_name_;
-  std::mutex mutex_;                       // protect `root_page_id_` from concurrent modification
-  static thread_local bool root_is_locked; // root is locked?
-  page_id_t root_page_id_;
-  BufferPoolManager *buffer_pool_manager_;
-  KeyComparator comparator_;
+    template <typename N> void Redistribute(N *neighbor_node, N *node, int index);
+
+    bool AdjustRoot(BPlusTreePage *node);
+
+    void UpdateRootPageId(bool insert_record = false);
+
+    // unlock all parents
+    void UnlockUnpinPages(Operation op, Transaction *transaction);
+
+    template <typename N>
+    bool isSafe(N *node, Operation op);
+
+    inline void lockRoot() { mutex_.lock(); }
+    inline void unlockRoot() { mutex_.unlock(); }
+
+    // member variable
+    std::string index_name_;  // b+tree是为index服务的，比如说为数据库的哪一个key去建立索引
+    std::mutex mutex_;                       // protect `root_page_id_` from concurrent modification
+    static thread_local bool root_is_locked; // root is locked?
+    page_id_t root_page_id_;
+    BufferPoolManager *buffer_pool_manager_;
+    KeyComparator comparator_;
 };
 
 } // namespace cmudb

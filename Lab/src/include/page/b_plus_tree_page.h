@@ -64,8 +64,8 @@ private:
     // member variable, attributes that both internal and leaf page share
     IndexPageType page_type_;
     lsn_t lsn_;
-    int size_;
-    int max_size_;
+    int size_;   // b+tree 当前的大小，即kv的数量，不能超过最大值，即秩 
+    int max_size_;  // b+tree的一个节点可以最大容纳的值一般是节点容量的一半到2/3。称为B+tree的秩
     page_id_t parent_page_id_;
     page_id_t page_id_;
 };

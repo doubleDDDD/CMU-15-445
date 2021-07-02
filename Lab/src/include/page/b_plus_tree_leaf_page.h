@@ -9,7 +9,8 @@
  *  ----------------------------------------------------------------------
  * | HEADER | KEY(1) + RID(1) | KEY(2) + RID(2) | ... | KEY(n) + RID(n)
  *  ----------------------------------------------------------------------
- *
+ *  map 类的容器还真没法直接用，最朴素的方式就是自定义数组来存放 std::pair
+ * 
  *  Header format (size in byte, 24 bytes in total):
  *  ---------------------------------------------------------------------
  * | PageType (4) | CurrentSize (4) | MaxSize (4) | ParentPageId (4) |
@@ -86,6 +87,7 @@ private:
    * put a variable-sized array at the end of a structure 
    * struct array { size_t size; int a[];}
    * struct array *array = malloc(sizeof (struct array) + size * sizeof (int))
+   * 这种结构用的还是蛮多的
    */
   MappingType array[0];
 };

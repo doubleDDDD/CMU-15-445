@@ -123,7 +123,7 @@ ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Lookup(
     else if (comparator(key, array[GetSize() - 1].first) >= 0)
     { return array[GetSize() - 1].second; }
 
-    // 二分查找
+    // 二分查找,节点内部的典型实现方式就是二分查找
     int low = 1, high = GetSize() - 1, mid;
     while (low < high && low + 1 != high)
     {
@@ -145,15 +145,14 @@ ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Lookup(
  * NOTE: This method is only called within InsertIntoParent()(b_plus_tree.cpp)
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    PopulateNewRoot(const ValueType &old_value, const KeyType &new_key,
-                    const ValueType &new_value)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::PopulateNewRoot(
+    const ValueType &old_value, const KeyType &new_key, const ValueType &new_value)
 {
-  // must be an empty page
-  assert(GetSize() == 1);
-  array[0].second = old_value;
-  array[1] = {new_key, new_value};
-  IncreaseSize(1);
+    // must be an empty page
+    assert(GetSize() == 1);
+    array[0].second = old_value;
+    array[1] = {new_key, new_value};
+    IncreaseSize(1);
 }
 
 /*

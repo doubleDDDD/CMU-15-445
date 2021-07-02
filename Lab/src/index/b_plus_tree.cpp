@@ -15,25 +15,27 @@ namespace cmudb
 {
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-BPlusTree<KeyType, ValueType, KeyComparator>::
-    BPlusTree(const std::string &name,
-              BufferPoolManager *buffer_pool_manager,
-              const KeyComparator &comparator,
-              page_id_t root_page_id)
+BPlusTree<KeyType, ValueType, KeyComparator>::BPlusTree(
+    const std::string &name,
+    BufferPoolManager *buffer_pool_manager,
+    const KeyComparator &comparator,
+    page_id_t root_page_id)
     : index_name_(name), root_page_id_(root_page_id),
-      buffer_pool_manager_(buffer_pool_manager), comparator_(comparator) {}
+      buffer_pool_manager_(buffer_pool_manager), comparator_(comparator) 
+    {}
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
+// 类内 static 的变量必须初始化，因为它不依赖于类对象的实例化
 thread_local bool BPlusTree<KeyType, ValueType, KeyComparator>::root_is_locked = false;
 
 /*
  * Helper function to decide whether current b+tree is empty
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-bool BPlusTree<KeyType, ValueType, KeyComparator>::
-    IsEmpty() const
+bool
+BPlusTree<KeyType, ValueType, KeyComparator>::IsEmpty() const
 {
-  return root_page_id_ == INVALID_PAGE_ID;
+    return root_page_id_ == INVALID_PAGE_ID;
 }
 
 /*****************************************************************************
@@ -42,39 +44,38 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::
 /*
  * Return the only value that associated with input key
  * This method is used for point query
+ * 这个是区别于范围查询的，当然范围查询也是先有一个 point 查询，然后顺着找就可以了               
  * @return : true means key exists
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-bool BPlusTree<KeyType, ValueType, KeyComparator>::
-    GetValue(const KeyType &key, std::vector<ValueType> &result,
-             Transaction *transaction)
+bool BPlusTree<KeyType, ValueType, KeyComparator>::GetValue(
+    const KeyType &key, std::vector<ValueType> &result,
+    Transaction *transaction)
 {
+    // 根据key找到叶子节点页面
+    auto *leaf = FindLeafPage(key, false, Operation::READONLY, transaction);
 
-  // 根据key找到叶子节点页面
-  auto *leaf = FindLeafPage(key, false, Operation::READONLY, transaction);
-  bool ret = false;
-  if (leaf != nullptr)
-  {
-    ValueType value;
-    if (leaf->Lookup(key, value, comparator_))
+    bool ret = false;
+    if (leaf != nullptr)
     {
-      result.push_back(value);
-      ret = true;
+        ValueType value;
+        if (leaf->Lookup(key, value, comparator_))
+        {
+            result.push_back(value);
+            ret = true;
+        }
+
+        // 释放锁
+        UnlockUnpinPages(Operation::READONLY, transaction);
+
+        if (transaction == nullptr)
+        {
+            auto page_id = leaf->GetPageId();
+            buffer_pool_manager_->FetchPage(page_id)->RUnlatch();
+            buffer_pool_manager_->UnpinPage(page_id, false);
+        }
     }
-
-    // 释放锁
-    UnlockUnpinPages(Operation::READONLY, transaction);
-
-    if (transaction == nullptr)
-    {
-      auto page_id = leaf->GetPageId();
-      buffer_pool_manager_->FetchPage(page_id)->RUnlatch();
-      buffer_pool_manager_->UnpinPage(page_id, false);
-
-      buffer_pool_manager_->UnpinPage(page_id, false);
-    }
-  }
-  return ret;
+    return ret;
 }
 
 /*****************************************************************************
@@ -82,54 +83,76 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::
  *****************************************************************************/
 /*
  * Insert constant key & value pair into b+ tree
+ * 核心实际上插入的应该是叶子节点的 kv
  * if current tree is empty, start new tree, update root page id and insert
- * entry, otherwise insert into leaf page.
+ * entry
+ *  直接在 root 节点的第1/2个kv对中insert本次的kv就完事了，这个时候的操作与 radix 树基本是没有任何差异的
+ * otherwise insert into leaf page
+ *  可能需要分裂节点甚至增加树的高度等等
  * @return: since we only support unique key, if user try to insert duplicate
  * keys return false, otherwise return true.
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-bool BPlusTree<KeyType, ValueType, KeyComparator>::
-    Insert(const KeyType &key, const ValueType &value, Transaction *transaction)
+bool BPlusTree<KeyType, ValueType, KeyComparator>::Insert(
+    const KeyType &key, const ValueType &value, Transaction *transaction)
 {
-
-  // 互斥锁
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    // 如果树为空就新建一棵树
-    if (IsEmpty())
+    // 互斥锁
     {
-      StartNewTree(key, value);
-      return true;
+        std::lock_guard<std::mutex> lock(mutex_);
+        // 如果树为空就新建一棵树
+        if (IsEmpty())
+        {
+            StartNewTree(key, value);
+            return true;
+        }
     }
-  }
-  return InsertIntoLeaf(key, value, transaction);
+    // 离开上面的{}范围之后lock就会释放
+    return InsertIntoLeaf(key, value, transaction);
 }
 
 /*
  * Insert constant key & value pair into an empty tree
+ *  即插入第一个节点
+ *  b+tree也是持久性设备上的内容，在数据库的层面上，b+tree的节点位于一整个数据库 page 中
  * User needs to first ask for new page from buffer pool manager(NOTICE: throw
  * an "out of memory" exception if returned value is nullptr), then update b+
  * tree's root page id and insert entry directly into leaf page.
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTree<KeyType, ValueType, KeyComparator>::
-    StartNewTree(const KeyType &key, const ValueType &value)
+void BPlusTree<KeyType, ValueType, KeyComparator>::StartNewTree(
+    const KeyType &key, const ValueType &value)
 {
-  auto *page = buffer_pool_manager_->NewPage(root_page_id_);
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while StartNewTree");
-  }
-  auto root =
-      reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType,
-                                         KeyComparator> *>(page->GetData());
-  // 别忘了要更新根节点页面id
-  UpdateRootPageId(true);
-  root->Init(root_page_id_, INVALID_PAGE_ID);
-  root->Insert(key, value, comparator_);
+    /**
+     * @brief 可以看到 disk manager 不会去 care 这个 page 是存数据库的内容还是存索引
+     * 反正你就顺序的去加就可以了
+     * 就目前看来，数据库的内容与index是位于同一个文件在
+     * 在 page 这个粒度上，DBMS并没有去care这些内容在磁盘上是否要顺序存放
+     */
+    auto *page = buffer_pool_manager_->NewPage(root_page_id_);
+    if (page == nullptr)
+    {
+        throw Exception(EXCEPTION_TYPE_INDEX,
+                        "all page are pinned while StartNewTree");
+    }
+    // 第一个节点就是b+tree的root节点，刚分配好的，本质是增加了file的size
+    auto root =
+        reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType,
+                                            KeyComparator> *>(page->GetData());
+    /**
+     * @brief Construct a new Update Root Page Id object
+     * header page 是用来存放表或索引的元数据的
+     * 所以在创建表或创建index的过程中，同样需要在 page header page 中注册自己的元数据
+     */
+    UpdateRootPageId(true);
+    // b+tree 的node节点是内存中的一个page，除了kv之外还有一些元数据被保存在 page 首部
+    root->Init(root_page_id_, INVALID_PAGE_ID);
+    /**
+     * @brief root节点的插入方法，value在本例中是一个指向 数据 page 的指针
+     * 从这里可以看出来在b+tree的创建过程中，最开始root节点就是叶子节点
+     */
+    root->Insert(key, value, comparator_);
 
-  buffer_pool_manager_->UnpinPage(root->GetPageId(), true);
+    buffer_pool_manager_->UnpinPage(root->GetPageId(), true);
 }
 
 /*
@@ -706,131 +729,130 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::
 /*
  * Find leaf page containing particular key, if leftMost flag == true, find
  * the left most leaf page
+ * 返回的就是 B+tree 的叶子节点
  */
 // 这个函数lab2和lab3有着很多不同
 template <typename KeyType, typename ValueType, typename KeyComparator>
 BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *
-BPlusTree<KeyType, ValueType, KeyComparator>::
-    FindLeafPage(const KeyType &key, bool leftMost, Operation op, Transaction *transaction)
+BPlusTree<KeyType, ValueType, KeyComparator>::FindLeafPage(
+    const KeyType &key, bool leftMost, Operation op, Transaction *transaction)
 {
-  // 如果操作不是只读的，就要锁根节点
-  if (op != Operation::READONLY)
-  {
-    lockRoot();
-    root_is_locked = true;
-  }
-
-  if (IsEmpty())
-  {
-    return nullptr;
-  }
-
-  auto *parent = buffer_pool_manager_->FetchPage(root_page_id_);
-  if (parent == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while FindLeafPage");
-  }
-
-  if (op == Operation::READONLY)
-  {
-    parent->RLatch();
-  }
-  else
-  {
-    parent->WLatch();
-  }
-  if (transaction != nullptr)
-  {
-    transaction->AddIntoPageSet(parent);
-  }
-
-  auto *node = reinterpret_cast<BPlusTreePage *>(parent->GetData());
-  while (!node->IsLeafPage())
-  {
-    auto internal =
-        reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t,
-                                               KeyComparator> *>(node);
-    page_id_t parent_page_id = node->GetPageId(), child_page_id;
-    if (leftMost)
+    // 如果操作不是只读的，就要锁根节点
+    if (op != Operation::READONLY)
     {
-      child_page_id = internal->ValueAt(0);
-    }
-    else
-    {
-      child_page_id = internal->Lookup(key, comparator_);
+        lockRoot();
+        root_is_locked = true;
     }
 
-    auto *child = buffer_pool_manager_->FetchPage(child_page_id);
-    if (child == nullptr)
+    if (IsEmpty()) { return nullptr; }
+
+    // 先把root节点的page拿到手
+    auto *parent = buffer_pool_manager_->FetchPage(root_page_id_);
+    if (parent == nullptr)
     {
-      throw Exception(EXCEPTION_TYPE_INDEX,
-                      "all page are pinned while FindLeafPage");
+        throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while FindLeafPage");
     }
 
-    if (op == Operation::READONLY)
-    {
-      child->RLatch();
-      UnlockUnpinPages(op, transaction);
-    }
-    else
-    {
-      child->WLatch();
-    }
-    node = reinterpret_cast<BPlusTreePage *>(child->GetData());
-    assert(node->GetParentPageId() == parent_page_id);
+    if (op == Operation::READONLY) { parent->RLatch(); }
+    else { parent->WLatch(); }
 
-    // 如果是安全的，就释放父节点那的锁
-    if (op != Operation::READONLY && isSafe(node, op))
+    if (transaction != nullptr) { transaction->AddIntoPageSet(parent);}
+    
+    // page 实际就是b+tree上的一个node
+    auto *node = reinterpret_cast<BPlusTreePage *>(parent->GetData());
+
+    /**
+     * @brief 这里就是一个递归搜索的一个过程
+     * 如果是叶子节点就直接返回了
+     * 如果是中间节点的话才会继续向下寻找
+     * 这玩意与面试时候的3种顺序打印二叉树异曲同工
+     */
+    while (!node->IsLeafPage())
     {
-      UnlockUnpinPages(op, transaction);
+        // 第一个节点一定是root节点，所以这里一定会走一遭
+        auto internal =
+            reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(node);
+
+        page_id_t parent_page_id = node->GetPageId(), child_page_id;
+
+        if (leftMost) { child_page_id = internal->ValueAt(0); }
+        else { child_page_id = internal->Lookup(key, comparator_); }
+
+        // 直接拿着key到内部节点中去找，通常就是二分查找
+        auto *child = buffer_pool_manager_->FetchPage(child_page_id);
+        if (child == nullptr) {
+            throw Exception(EXCEPTION_TYPE_INDEX,
+                            "all page are pinned while FindLeafPage");
+        }
+
+        if (op == Operation::READONLY)
+        {
+            child->RLatch();
+            UnlockUnpinPages(op, transaction);
+        }
+        else
+        {
+            child->WLatch();
+        }
+
+        node = reinterpret_cast<BPlusTreePage *>(child->GetData());
+        assert(node->GetParentPageId() == parent_page_id);
+
+        // 如果是安全的，就释放父节点那的锁
+        if (op != Operation::READONLY && isSafe(node, op))
+        {
+            UnlockUnpinPages(op, transaction);
+        }
+        if (transaction != nullptr)
+        {
+            transaction->AddIntoPageSet(child);
+        }
+        else
+        {
+            parent->RUnlatch();
+            buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
+            parent = child;
+        }
     }
-    if (transaction != nullptr)
-    {
-      transaction->AddIntoPageSet(child);
-    }
-    else
-    {
-      parent->RUnlatch();
-      buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
-      parent = child;
-    }
-  }
-  return reinterpret_cast<BPlusTreeLeafPage<KeyType,
-                                            ValueType, KeyComparator> *>(node);
+
+    return reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(node);
 }
 
 /*
  * Update/Insert root page id in header page(where page_id = 0, header_page is
  * defined under include/page/header_page.h)
+ *  header page 保存的是表与 index 的元数据
+ *  实际上，创建表与创建索引是一个差不多的操作
  * Call this method every time root page id is changed.
  * @parameter: insert_record default value is false. When set to true,
  * insert a record <index_name, root_page_id> into header page instead of
  * updating it.
+ *  表名与索引名是不能重复的
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTree<KeyType, ValueType, KeyComparator>::
-    UpdateRootPageId(bool insert_record)
+void 
+BPlusTree<KeyType, ValueType, KeyComparator>::UpdateRootPageId(bool insert_record)
 {
-  auto *page = buffer_pool_manager_->FetchPage(HEADER_PAGE_ID);
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while UpdateRootPageId");
-  }
-  auto *header_page = reinterpret_cast<HeaderPage *>(page->GetData());
+    auto *page = buffer_pool_manager_->FetchPage(HEADER_PAGE_ID);
+    if (page == nullptr)
+    {
+        throw Exception(EXCEPTION_TYPE_INDEX,
+                        "all page are pinned while UpdateRootPageId");
+    }
+    auto *header_page = reinterpret_cast<HeaderPage *>(page->GetData());
 
-  if (insert_record)
-  {
-    // create a new record<index_name + root_page_id> in header_page
-    header_page->InsertRecord(index_name_, root_page_id_);
-  }
-  else
-  {
-    // update root_page_id in header_page
-    header_page->UpdateRecord(index_name_, root_page_id_);
-  }
-  buffer_pool_manager_->UnpinPage(HEADER_PAGE_ID, true);
+    if (insert_record)
+    {
+        // create a new record<index_name + root_page_id> in header_page
+        header_page->InsertRecord(index_name_, root_page_id_);
+    }
+    else
+    {
+        // update root_page_id in header_page
+        header_page->UpdateRecord(index_name_, root_page_id_);
+    }
+
+    buffer_pool_manager_->UnpinPage(HEADER_PAGE_ID, true);
 }
 
 /*
