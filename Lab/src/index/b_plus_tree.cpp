@@ -11,6 +11,13 @@
 #include "index/b_plus_tree.h"
 #include "page/header_page.h"
 
+
+/**
+ * @brief 
+ * 利用旧金山大学的数据结构可视化工具去理解了一下b+tree
+ * b+tree有一个属性称为秩。这个是要提前预设的，
+ */
+
 namespace cmudb
 {
 
@@ -152,11 +159,14 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::StartNewTree(
      */
     root->Insert(key, value, comparator_);
 
+    // unpin 是为了支持多线程并发的
     buffer_pool_manager_->UnpinPage(root->GetPageId(), true);
 }
 
 /*
  * Insert constant key & value pair into leaf page
+ *  插入节点是有可能会造成 b+tree 的分裂的
+ *  现在知道了，在一个b+tree中，所谓的指针就是 page number，难道没有搞一个 page 内的 offset 么，不知道开销是否大
  * User needs to first find the right leaf page as insertion target, then look
  * through leaf page to see whether insert key exist or not. If exist, return
  * immediately, otherwise insert entry. Remember to deal with split if necessary.
@@ -164,62 +174,62 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::StartNewTree(
  * keys return false, otherwise return true.
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-bool BPlusTree<KeyType, ValueType, KeyComparator>::
-    InsertIntoLeaf(const KeyType &key, const ValueType &value, Transaction *transaction)
+bool
+BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
+    const KeyType &key, const ValueType &value, Transaction *transaction)
 {
-  auto *leaf = FindLeafPage(key, false, Operation::INSERT, transaction);
-  if (leaf == nullptr)
-  {
-    return false;
-  }
+    // 先找到正确的叶子节点，在这个过程中，什么都不需要care，只要找到即可，最次就是在最左边或最右边
+    // 找到之后检查能够正常的 insert
+    auto *leaf = FindLeafPage(key, false, Operation::INSERT, transaction);
+    if (leaf == nullptr) { return false; }
 
-  ValueType v;
-  // 如果树中已经有值了，就返回false
-  if (leaf->Lookup(key, v, comparator_))
-  {
+    ValueType v;
+    // 如果树中已经有值了，就返回false
+    if (leaf->Lookup(key, v, comparator_))
+    {
+        UnlockUnpinPages(Operation::INSERT, transaction);
+        return false;
+    }
+    /**
+     * @brief 如果已经直接调用了叶子节点的 insert 方法，那么意味着是能够顺利 insert 的，即由调用方在确定是否可以顺利insert
+     * 实际上调用方就是 b+tree 的对象，是具有全局视角的一个对象，由它去 control 所有的节点 
+     * if L has enough space, and done
+     */
+    if (leaf->GetSize() < leaf->GetMaxSize()) { leaf->Insert(key, value, comparator_); }
+    else
+    {
+        /**
+         * @brief 如果一个叶子节点的空间不够了，如果插入后就会超过预设的秩
+         * 这个时候就必须要分裂叶子节点了，因为 b+tree 所要求的 k 的个数最小是秩的一半，最大不超过秩
+         * 所以就是创建一个新的节点 L2，然后平均分配 L 中的 kv 到 L 与 L2
+         */
+        auto *leaf2 = Split<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>(leaf);
+        if (comparator_(key, leaf2->KeyAt(0)) < 0)
+        { leaf->Insert(key, value, comparator_); }
+        else { leaf2->Insert(key, value, comparator_); }
+
+        // 更新前后关系
+        if (comparator_(leaf->KeyAt(0), leaf2->KeyAt(0)) < 0)
+        {
+        leaf2->SetNextPageId(leaf->GetNextPageId());
+        leaf->SetNextPageId(leaf2->GetPageId());
+        }
+        else
+        {
+        leaf2->SetNextPageId(leaf->GetPageId());
+        }
+
+        // 将分裂的节点插入到父节点
+        InsertIntoParent(leaf, leaf2->KeyAt(0), leaf2, transaction);
+    }
+
     UnlockUnpinPages(Operation::INSERT, transaction);
-    return false;
-  }
-
-  // 不需要分裂就直接插入
-  if (leaf->GetSize() < leaf->GetMaxSize())
-  {
-    leaf->Insert(key, value, comparator_);
-  }
-  else
-  {
-    // 分裂出一个新叶子节点页面
-    auto *leaf2 = Split<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>(leaf);
-    if (comparator_(key, leaf2->KeyAt(0)) < 0)
-    {
-      leaf->Insert(key, value, comparator_);
-    }
-    else
-    {
-      leaf2->Insert(key, value, comparator_);
-    }
-
-    // 更新前后关系
-    if (comparator_(leaf->KeyAt(0), leaf2->KeyAt(0)) < 0)
-    {
-      leaf2->SetNextPageId(leaf->GetNextPageId());
-      leaf->SetNextPageId(leaf2->GetPageId());
-    }
-    else
-    {
-      leaf2->SetNextPageId(leaf->GetPageId());
-    }
-
-    // 将分裂的节点插入到父节点
-    InsertIntoParent(leaf, leaf2->KeyAt(0), leaf2, transaction);
-  }
-
-  UnlockUnpinPages(Operation::INSERT, transaction);
-  return true;
+    return true;
 }
 
 /*
  * Split input page and return newly created page.
+ *  split可以看的出来是b+tree的方法
  * Using template N to represent either internal page or leaf page.
  * User needs to first ask for new page from buffer pool manager(NOTICE: throw
  * an "out of memory" exception if returned value is nullptr), then move half
@@ -227,21 +237,21 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 template <typename N>
-N *BPlusTree<KeyType, ValueType, KeyComparator>::
-    Split(N *node)
+N *BPlusTree<KeyType, ValueType, KeyComparator>::Split(N *node)
 {
-  page_id_t page_id;
-  auto *page = buffer_pool_manager_->NewPage(page_id);
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while Split");
-  }
-  auto new_node = reinterpret_cast<N *>(page->GetData());
-  new_node->Init(page_id);
+    page_id_t page_id;
+    // 新创建 page 的过程实际上是磁盘文件++的过程，之前有说过，创建 index 与创建 table 是一样的，它们都是磁盘上的文件
+    auto *page = buffer_pool_manager_->NewPage(page_id);
+    if (page == nullptr) {
+        throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while Split");
+    }
 
-  node->MoveHalfTo(new_node, buffer_pool_manager_);
-  return new_node;
+    auto new_node = reinterpret_cast<N *>(page->GetData());
+    /* 叶子节点与中间节点都有自己的init方法 */
+    new_node->Init(page_id);
+
+    node->MoveHalfTo(new_node, buffer_pool_manager_);
+    return new_node;
 }
 
 /*

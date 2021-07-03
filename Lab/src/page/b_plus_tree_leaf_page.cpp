@@ -131,37 +131,32 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Insert(
     // 要插入的值当前最小的还小
     else if (comparator(key, array[0].first) < 0)
     {
-        // 整体向后搬一个 slot
+        // 整体向后搬一个 slot, 这些均为内存操作
         memmove((void *)(array + 1), (void *)array, static_cast<size_t>(GetSize() * sizeof(MappingType)));
         array[0] = {key, value};
     }
     else
     {
-        // 要插入的位置是一个居中的位置，因为是排序的key，所以采用log
+        // 要插入的位置是一个居中的位置，因为是排序的key，所以采用二分查找
         int low = 0, high = GetSize() - 1, mid;
         while (low < high && low + 1 != high)
         {
-        mid = low + (high - low) / 2;
-        if (comparator(key, array[mid].first) < 0)
-        {
-            high = mid;
+            mid = low + (high - low) / 2;
+            if (comparator(key, array[mid].first) < 0) { high = mid; }
+            else if (comparator(key, array[mid].first) > 0) { low = mid; }
+            else {
+                // 由于只支持不重复的key，所以不应当执行到这
+                assert(0);
+            }
         }
-        else if (comparator(key, array[mid].first) > 0)
-        {
-            low = mid;
-        }
-        else
-        {
-            // 由于只支持不重复的key，所以不应当执行到这
-            assert(0);
-        }
-        }
-        memmove((void *)(array + high + 1), (void *)(array + high),
-                static_cast<size_t>((GetSize() - high) * sizeof(MappingType)));
+        // move 剩下的部分，同样的这也都是内存操作，仅仅是使 page dirty
+        memmove(
+            (void *)(array + high + 1), (void *)(array + high), static_cast<size_t>((GetSize() - high) * sizeof(MappingType)));
+
         array[high] = {key, value};
     }
 
-    IncreaseSize(1);
+    IncreaseSize(1);  // b+tree 叶子节点中增加了一个元素
     assert(GetSize() <= GetMaxSize());
     return GetSize();
 }
@@ -173,28 +168,27 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Insert(
  * Remove half of key & value pairs from this page to "recipient" page
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    MoveHalfTo(BPlusTreeLeafPage *recipient,
-               __attribute__((unused)) BufferPoolManager *buffer_pool_manager)
+void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
+    BPlusTreeLeafPage *recipient,  __attribute__((unused)) BufferPoolManager *buffer_pool_manager)
 {
-  assert(GetSize() > 0);
+    assert(GetSize() > 0);
 
-  int size = GetSize() / 2;
-  MappingType *src = array + GetSize() - size;
-  recipient->CopyHalfFrom(src, size);
-  IncreaseSize(-1 * size);
+    int size = GetSize() / 2;
+    MappingType *src = array + GetSize() - size;  // 确定 src 的地址并修改 src page 的 header
+    recipient->CopyHalfFrom(src, size);  // 直接调用 dst 的 copy 函数，完成node内容的迁移
+    IncreaseSize(-1 * size);
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    CopyHalfFrom(MappingType *items, int size)
+void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::CopyHalfFrom(
+    MappingType *items, int size)
 {
-  assert(IsLeafPage() && GetSize() == 0);
-  for (int i = 0; i < size; ++i)
-  {
-    array[i] = *items++;
-  }
-  IncreaseSize(size);
+    assert(IsLeafPage() && GetSize() == 0);
+    for (int i = 0; i < size; ++i)
+    {
+        array[i] = *items++;
+    }
+    IncreaseSize(size);
 }
 
 /*****************************************************************************

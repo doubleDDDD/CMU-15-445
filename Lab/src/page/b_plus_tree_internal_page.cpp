@@ -20,7 +20,8 @@ namespace cmudb
 // 每次new一个页面后需要自己调用这个函数进行初始化
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void 
-BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Init(page_id_t page_id, page_id_t parent_id)
+BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Init(
+    page_id_t page_id, page_id_t parent_id)
 {
     // set page type
     SetPageType(IndexPageType::INTERNAL_PAGE);
