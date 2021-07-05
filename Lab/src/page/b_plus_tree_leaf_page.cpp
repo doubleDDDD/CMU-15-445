@@ -126,7 +126,7 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Insert(
     // 真的是底层写好之后，上面的逻辑确实是在调包
     if (GetSize() == 0 || comparator(key, KeyAt(GetSize() - 1)) > 0)
     {
-        array[GetSize()] = {key, value};
+        array[GetSize()] = {key, value};  // 可以看到，如果是第一个kv对，是要用 slot 0 的
     }
     // 要插入的值当前最小的还小
     else if (comparator(key, array[0].first) < 0)
@@ -171,9 +171,13 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
     BPlusTreeLeafPage *recipient,  __attribute__((unused)) BufferPoolManager *buffer_pool_manager)
 {
+    /**
+     * @brief recipient 是 new node，即 new page
+     * 就是b+ tree叶子节点的分裂过程
+     */
     assert(GetSize() > 0);
 
-    int size = GetSize() / 2;
+    int size = GetSize() / 2;  // 这是向下取整的
     MappingType *src = array + GetSize() - size;  // 确定 src 的地址并修改 src page 的 header
     recipient->CopyHalfFrom(src, size);  // 直接调用 dst 的 copy 函数，完成node内容的迁移
     IncreaseSize(-1 * size);

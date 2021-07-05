@@ -45,7 +45,7 @@ public:
     void SetPageType(IndexPageType page_type);  /* helper */
 
     int GetSize() const;
-    void SetSize(int size);
+    void SetSize(int size);  /* 这个地方为啥不是 tree 的属性呢，即 b+ tree 的秩 */
     void IncreaseSize(int amount);
 
     int GetMaxSize() const;

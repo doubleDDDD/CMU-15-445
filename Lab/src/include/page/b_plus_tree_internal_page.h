@@ -7,6 +7,9 @@
  * NOTE: since the number of keys does not equal to number of child pointers,
  * the first key always remains invalid. That is to say, any search/lookup
  * should ignore the first key.
+ * 我丢，这个作者好像没有这样写哦，这里怕是要自己重写一版了
+ * 怕是看错了，叶子节点是不怕的，叶子节点可以正常用kv，最后一个v是指向下一个page的指针
+ * 但是中间节点确实是需要 kv 错开的
  *
  * Internal page format (keys are stored in increasing order):
  *  --------------------------------------------------------------------------

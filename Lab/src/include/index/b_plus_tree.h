@@ -96,7 +96,8 @@ private:
                             BPlusTreePage *new_node,
                             Transaction *transaction = nullptr);
 
-    template <typename N> N *Split(N *node);
+    template <typename N> 
+    N *Split(N *node);
 
     template <typename N>
     bool CoalesceOrRedistribute(N *node, Transaction *transaction = nullptr);

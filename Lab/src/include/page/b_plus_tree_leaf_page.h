@@ -4,6 +4,7 @@
  * Store indexed key and record id(record id = page id combined with slot id,
  * see include/common/rid.h for detailed implementation) together within leaf
  * page. Only support unique key.
+ *  果然，value是pageid+slotid，是能够直接定位到一个tuple的
 
  * Leaf page format (keys are stored in order):
  *  ----------------------------------------------------------------------
