@@ -26,24 +26,25 @@ Type *Type::kTypes[] = {
 
 // Get the size of this data type in bytes
 uint64_t Type::GetTypeSize(const TypeId type_id) {
-  switch (type_id) {
-  case BOOLEAN:
-  case TINYINT:
-    return 1;
-  case SMALLINT:
-    return 2;
-  case INTEGER:
-    return 4;
-  case BIGINT:
-  case DECIMAL:
-  case TIMESTAMP:
-    return 8;
-  case VARCHAR:
-    return 0;
-  default:
-    break;
-  }
-  throw Exception(EXCEPTION_TYPE_UNKNOWN_TYPE, "Unknown type.");
+    switch (type_id) {
+    case BOOLEAN:
+    case TINYINT:
+        return 1;
+    case SMALLINT:
+        return 2;
+    case INTEGER:
+        return 4;
+    case BIGINT:
+    case DECIMAL:
+    case TIMESTAMP:
+        return 8;
+    case VARCHAR:
+        return 0;
+    default:
+        break;
+    }
+
+    throw Exception(EXCEPTION_TYPE_UNKNOWN_TYPE, "Unknown type.");
 }
 
 bool Type::IsCoercableFrom(const TypeId type_id) const {

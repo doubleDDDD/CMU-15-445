@@ -11,24 +11,27 @@
 namespace cmudb {
 
 // Construct schema from vector of Column
-Schema::Schema(const std::vector<Column> &columns) : tuple_is_inlined(true) {
-  int32_t column_offset = 0;
-  for (size_t index = 0; index < columns.size(); index++) {
-    Column column = columns[index];
-    // handle uninlined column
-    if (column.IsInlined() == false) {
-      tuple_is_inlined = false;
-      uninlined_columns.push_back(index);
-    }
-    // set column offset
-    column.column_offset = column_offset;
-    column_offset += column.GetFixedLength();
+Schema::Schema(const std::vector<Column> &columns) : tuple_is_inlined(true) 
+{
+    int32_t column_offset = 0;
+    for (size_t index = 0; index < columns.size(); index++) 
+    {
+        Column column = columns[index];
+        // handle uninlined column
+        if (column.IsInlined() == false) {
+            // varchar
+            tuple_is_inlined = false;
+            uninlined_columns.push_back(index);  // 这里仅仅是 index
+        }
+        // set column offset
+        column.column_offset = column_offset;  // 第一个的offset是0
+        column_offset += column.GetFixedLength();  // 该列数据类型所占的字节数
 
-    // add column
-    this->columns.push_back(std::move(column));
-  }
-  // set tuple length
-  length = column_offset;
+        // add column
+        this->columns.push_back(std::move(column));  // 掏空右值
+    }
+    // set tuple length
+    length = column_offset;  // 搜嘎，这里确实是 tuple 的长度
 }
 
 /*

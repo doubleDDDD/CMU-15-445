@@ -401,63 +401,66 @@ extern "C" int sqlite3_vtable_init(sqlite3 *db, char **pzErrMsg,
 
 /* Helpers */
 Schema *ParseCreateStatement(const std::string &sql_base) {
-  std::string::size_type n;
-  std::vector<Column> v;
-  std::string column_name;
-  std::string column_type;
-  int column_length = 0;
-  TypeId type = INVALID;
-  // create a copy of the sql query
-  std::string sql = sql_base;
-  // prepocess, transform sql string into lower case
-  std::transform(sql.begin(), sql.end(), sql.begin(), ::tolower);
-  std::vector<std::string> tok = StringUtility::Split(sql, ',');
-  // iterate through returned result
-  for (std::string &t : tok) {
-    type = INVALID;
-    column_length = 0;
-    // whitespace seperate column name and type
-    n = t.find_first_of(' ');
-    column_name = t.substr(0, n);
-    column_type = t.substr(n + 1);
-    // deal with varchar(size) situation
-    n = column_type.find_first_of('(');
-    if (n != std::string::npos) {
-      column_length = std::stoi(column_type.substr(n + 1));
-      column_type = column_type.substr(0, n);
-    }
-    if (column_type == "bool" || column_type == "boolean") {
-      type = BOOLEAN;
-    } else if (column_type == "tinyint") {
-      type = TINYINT;
-    } else if (column_type == "smallint") {
-      type = SMALLINT;
-    } else if (column_type == "int" || column_type == "integer") {
-      type = INTEGER;
-    } else if (column_type == "bigint") {
-      type = BIGINT;
-    } else if (column_type == "double" || column_type == "float") {
-      type = DECIMAL;
-    } else if (column_type == "varchar" || column_type == "char") {
-      type = VARCHAR;
-      column_length = (column_length == 0) ? 32 : column_length;
-    }
-    // construct each column
-    if (type == INVALID) {
-      throw Exception(EXCEPTION_TYPE_UNKNOWN_TYPE,
-                      "unknown type for create table");
-    } else if (type == VARCHAR) {
-      Column col(type, column_length, column_name);
-      v.emplace_back(col);
-    } else {
-      Column col(type, Type::GetTypeSize(type), column_name);
-      v.emplace_back(col);
-    }
-  }
-  Schema *schema = new Schema(v);
-  // LOG_DEBUG("%s", schema->ToString().c_str());
+    std::string::size_type n;
+    std::vector<Column> v;
+    std::string column_name;
+    std::string column_type;
+    int column_length = 0;
+    TypeId type = INVALID;
+    // create a copy of the sql query
+    std::string sql = sql_base;
+    // prepocess, transform sql string into lower case（小写）
+    // 怪不得说 sql 是大小写不敏感的
+    std::transform(sql.begin(), sql.end(), sql.begin(), ::tolower);
+    // 创建table格式的时候是这个样子的 (a int, b varchar, ...)  逗号是列的分割符
+    std::vector<std::string> tok = StringUtility::Split(sql, ',');
+    // iterate through returned result
+    for (std::string &t : tok) {
+        type = INVALID;
+        column_length = 0;
+        // whitespace seperate column name and type
+        // 原来这里是这样来处理的
+        n = t.find_first_of(' ');
+        column_name = t.substr(0, n);  // 列名 
+        column_type = t.substr(n + 1);  // 列类型
+        // deal with varchar(size) situation varchar会指定字符串的宽度
+        n = column_type.find_first_of('(');
+        if (n != std::string::npos) {
+            column_length = std::stoi(column_type.substr(n + 1));  // 该列字符串所占的长度，该长度是用户指定的 varchar(13), 则 column_length=13
+            column_type = column_type.substr(0, n);
+        }
+        if (column_type == "bool" || column_type == "boolean") {
+            type = BOOLEAN;
+        } else if (column_type == "tinyint") {
+            type = TINYINT;
+        } else if (column_type == "smallint") {
+            type = SMALLINT;
+        } else if (column_type == "int" || column_type == "integer") {
+            type = INTEGER;
+        } else if (column_type == "bigint") {
+            type = BIGINT;
+        } else if (column_type == "double" || column_type == "float") {
+            type = DECIMAL;
+        } else if (column_type == "varchar" || column_type == "char") {
+            type = VARCHAR;
+            column_length = (column_length == 0) ? 32 : column_length;  // 测试代码都是非常的严谨
+        }
 
-  return schema;
+        // construct each column
+        if (type == INVALID) {
+            throw Exception(EXCEPTION_TYPE_UNKNOWN_TYPE, "unknown type for create table");
+        } else if (type == VARCHAR) {
+            Column col(type, column_length, column_name);
+            v.emplace_back(col);
+        } else {
+            Column col(type, Type::GetTypeSize(type), column_name);
+            v.emplace_back(col);
+        }
+    }
+    Schema *schema = new Schema(v);
+    // LOG_DEBUG("%s", schema->ToString().c_str());
+
+    return schema;
 }
 
 IndexMetadata *ParseIndexStatement(std::string &sql,

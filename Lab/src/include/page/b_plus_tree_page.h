@@ -45,10 +45,14 @@ public:
     void SetPageType(IndexPageType page_type);  /* helper */
 
     int GetSize() const;
-    void SetSize(int size);  /* 这个地方为啥不是 tree 的属性呢，即 b+ tree 的秩 */
+    void SetSize(int size);
     void IncreaseSize(int amount);
 
     int GetMaxSize() const;
+    /**
+     * @brief 这个地方为啥不是 tree 的属性呢，即 b+ tree 的秩
+     * 目前的实现是搞满的，应该加一个参数因子啥的，取值是 1/2 或 2/3, 或者直接set这个值到节点
+     */
     void SetMaxSize(int max_size);
     int GetMinSize() const;
 
@@ -60,6 +64,9 @@ public:
 
     void SetLSN(lsn_t lsn = INVALID_LSN);
 
+    void SetLayerId(int);
+    int GetLayerId() const;
+
 private:
     // member variable, attributes that both internal and leaf page share
     IndexPageType page_type_;
@@ -68,6 +75,7 @@ private:
     int max_size_;  // b+tree的一个节点可以最大容纳的值一般是节点容量的一半到2/3。称为B+tree的秩
     page_id_t parent_page_id_;
     page_id_t page_id_;
+    int layer;  // b+ tree 节点所处的层号
 };
 
 } // namespace cmudb

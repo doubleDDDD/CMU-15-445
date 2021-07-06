@@ -9,26 +9,26 @@
 namespace cmudb {
 
 void Column::SetLength(int32_t column_length) {
-  // Set the column length based on whether it is inlined
-  if (is_inlined) {
-    fixed_length = column_length;
-    variable_length = 0;
-  } else {
-    fixed_length = sizeof(int32_t);
-    variable_length = column_length;
-  }
+    // Set the column length based on whether it is inlined
+    if (is_inlined) {
+        fixed_length = column_length;
+        variable_length = 0;
+    } else {
+        fixed_length = sizeof(int32_t);
+        variable_length = column_length;
+    }
 }
 
 void Column::SetInlined() {
-  switch (column_type) {
-  case TypeId::VARCHAR:
-    is_inlined = false;
-    break;
+    switch (column_type) {
+    case TypeId::VARCHAR:
+        is_inlined = false;
+        break;
 
-  default:
-    is_inlined = true;
-    break;
-  }
+    default:
+        is_inlined = true;
+        break;
+    }
 }
 
 std::string Column::ToString() const {

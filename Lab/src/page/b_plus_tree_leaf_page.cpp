@@ -26,7 +26,8 @@ namespace cmudb
  * next page id and set max size
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Init(
+void
+BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Init(
     page_id_t page_id, page_id_t parent_id)
 {
     // set page type
@@ -40,9 +41,10 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Init(
     // set next page id
     SetNextPageId(INVALID_PAGE_ID);
 
-    // set max page size, header is 28bytes
-    int size = (PAGE_SIZE - sizeof(BPlusTreeLeafPage)) /
-                (sizeof(KeyType) + sizeof(ValueType));
+    // set max page size, header is 28bytes，这里好像并没有保留叶子节点上成链的那个 slot
+    // 这里是一个很重要的参考，在这个基础上要减少1才是实际能够容纳的节点的数量
+    // 叶子节点要预留最后一个成list指针的位置
+    int size = (PAGE_SIZE - sizeof(BPlusTreeLeafPage)) / (sizeof(KeyType) + sizeof(ValueType)) - 1;
     SetMaxSize(size);
 }
 
@@ -116,6 +118,7 @@ const MappingType &BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::GetItem
  * @return  page size after insertion
  * 要注意这个已经是叶子节点的方法了，确定叶子节点要调用者来搞定
  * 这里并没有判断叶子节点能够新增element，所以应该是调用者来判断叶子节点能够继续添加的，否则需要split
+ * 叶子节点的kv都是有直接对应关系的 (不存在那个错位的问题 )，只是最后一个不用，最后一个kv中，k是无效的，v指向下一个叶子节点
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Insert(
@@ -124,6 +127,7 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Insert(
 {
     // 为空或者要插入的值比当前最大的还大
     // 真的是底层写好之后，上面的逻辑确实是在调包
+    // k的下标是从0开始的，最大的下标是 GetSize()-1 但是这里最后一个v不应该是需要保留的么
     if (GetSize() == 0 || comparator(key, KeyAt(GetSize() - 1)) > 0)
     {
         array[GetSize()] = {key, value};  // 可以看到，如果是第一个kv对，是要用 slot 0 的

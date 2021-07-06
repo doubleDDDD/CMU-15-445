@@ -153,7 +153,13 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::StartNewTree(
     UpdateRootPageId(true);
     // b+tree 的node节点是内存中的一个page，除了kv之外还有一些元数据被保存在 page 首部
     // 初始化 size=0，但是 maxsize 就是所有能够容纳kv的数量
+    // 在 init 之后再 set 一下 maxsize 作为B+ tree 的秩，方便测试的
     root->Init(root_page_id_, INVALID_PAGE_ID);
+
+    // reset, if show debug is not defined, the func is a empty func
+    // 规则也保证了b+tree的阶数至少是1
+    ReSetPageOrder(root);
+
     /**
      * @brief root节点的插入方法，value在本例中是一个指向 数据 page 的指针
      * 从这里可以看出来在b+tree的创建过程中，最开始root节点就是叶子节点
@@ -180,7 +186,7 @@ BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
     const KeyType &key, const ValueType &value, Transaction *transaction)
 {
     // 先找到正确的叶子节点，在这个过程中，什么都不需要care，只要找到即可，最次就是在最左边或最右边
-    // 找到之后检查能够正常的 insert
+    // 找到之后检查能够正常的 insert，这里找到的一定是叶子节点
     auto *leaf = FindLeafPage(key, false, Operation::INSERT, transaction);
     if (leaf == nullptr) { return false; }
 
@@ -982,6 +988,81 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::
     Remove(index_key, transaction);
   }
 }
+
+// 分割线
+template <typename KeyType, typename ValueType, typename KeyComparator>
+void 
+BPlusTree<KeyType, ValueType, KeyComparator>::SetOrder(int _order)
+{
+    order = _order;
+    return;
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
+void 
+BPlusTree<KeyType, ValueType, KeyComparator>::ReSetPageOrder(
+    BPlusTreePage *node)
+{
+#ifdef DEBUG_TREE_SHOW
+    if(order > node->GetMaxSize() || order <= 0) {
+        throw Exception(EXCEPTION_TYPE_OUT_OF_RANGE, "order of b+ tree is too big!");
+    }
+    // b+tree 的阶这里做了限制，用户可以指定，但是绝不能大于最大值，这个最大值已经考虑到了最后的成list指针
+    node->SetMaxSize(order);
+#endif
+    return;
+}
+
+/**
+ * @brief show something about this b+ tree
+ */
+template <typename KeyType, typename ValueType, typename KeyComparator>
+void BPlusTree<KeyType, ValueType, KeyComparator>::Show() const
+{
+#ifdef DEBUG_TREE_SHOW
+    // 从 root 节点遍历，线程不安全，事务不安全
+    std::vector<BPlusTreePage> _children;  // 用于存放同一层次的 node
+    auto node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(root_page_id_));
+    PrintSingleNode(node, _children);  // root节点，负责打印 node 的 kv，并将所有的子节点 append 到队列 _children
+
+    // 这个时候 children 中应该存在第二层的若干节点，这个时候的策略是要遍历第二层的所有节点，并将子节点追加到一个新的待处理队列中
+    for(auto i=_children.begin(), i!=_children.end(); ++i){
+        *i
+    }
+#endif
+    return;
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
+void
+BPlusTree<KeyType, ValueType, KeyComparator>::PrintSingleNode(BPlusTreePage *node) const 
+{
+    /**
+     * @brief 层次遍历节点，额外的空间保存节点
+     * 在每次遍历的时候，准备一个队列，在打印一个 node kv 的时候，将同一层的所有 node 全部如队，如此循环往复即可
+     */
+    std::vector<BPlusTreePage> _children;
+    _children.clear();
+
+    node->GetLayerId();
+    node->GetMaxSize();
+    node->GetPageId();
+    node->GetSize()
+    node->GetMinSize()
+
+
+    for(  ){
+        // 打印自己，push_back 子节点
+        if(!node->IsLeafPage) { _children.push_back(childnode); }
+    }
+
+    if(!_children.empty()){
+        for() { PrintSingleNode(); }
+    }
+
+    return;
+}
+
 
 template class BPlusTree<GenericKey<4>, RID, GenericComparator<4>>;
 template class BPlusTree<GenericKey<8>, RID, GenericComparator<8>>;

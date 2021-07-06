@@ -26,6 +26,8 @@
 #include "page/b_plus_tree_internal_page.h"
 #include "page/b_plus_tree_leaf_page.h"
 
+#define DEBUG_TREE_SHOW
+
 namespace cmudb {
 
 #define BPLUSTREE_TYPE BPlusTree<KeyType, ValueType, KeyComparator>
@@ -76,6 +78,15 @@ public:
                 Operation op = Operation::READONLY,
                 Transaction *transaction = nullptr);
 
+    // set为用户指定的阶
+    void SetOrder(int _order);
+
+    // b+ tree 叶子节点分配后都会将阶指定为一个节点所能够容纳的最大值，所以这里需要reset一下，以tree的阶为准
+    void ReSetPageOrder(BPlusTreePage *);
+
+    void Show() const;
+    void PrintSingleNode(BPlusTreePage *) const;
+
 private:
     class Checker {
     public:
@@ -113,7 +124,8 @@ private:
                     BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent,
                     int index, Transaction *transaction = nullptr);
 
-    template <typename N> void Redistribute(N *neighbor_node, N *node, int index);
+    template <typename N> 
+    void Redistribute(N *neighbor_node, N *node, int index);
 
     bool AdjustRoot(BPlusTreePage *node);
 
@@ -135,6 +147,12 @@ private:
     page_id_t root_page_id_;
     BufferPoolManager *buffer_pool_manager_;
     KeyComparator comparator_;
+    /**
+     * @brief 实际上 B+tree 在每一个节点中能够容纳的k的个数，b+tree的阶一般是节点容量的 1/2 或 2/3，这个秩的定义是有的。在节点中，每一个节点的 header 部分有存
+     * 有点奇怪，秩应该是 b+ tree 的性质，而不是节点的性质哦
+     * 秩限制的是key的数量
+     */
+    int order = 0;
 };
 
 } // namespace cmudb

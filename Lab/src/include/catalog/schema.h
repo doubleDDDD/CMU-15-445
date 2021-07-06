@@ -105,20 +105,21 @@ public:
   std::string ToString() const;
 
 private:
-  // size of fixed length columns
-  int32_t length;
+    // size of fixed length columns
+    int32_t length;
 
-  // all inlined and uninlined columns in the tuple
-  std::vector<Column> columns;
+    // all inlined and uninlined columns in the tuple
+    std::vector<Column> columns;
 
-  // are all columns inlined
-  bool tuple_is_inlined;
+    // are all columns inlined
+    bool tuple_is_inlined;
 
-  // keeps track of unlined columns, using logical position(start with 0)
-  std::vector<int> uninlined_columns;
+    // keeps track of unlined columns, using logical position(start with 0)
+    // 只有 varchar, 这里仅仅保存了下标而已，不同于 columns 直接保存的对象就是 Column 的类对象
+    std::vector<int> uninlined_columns;
 
-  // keeps track of indexed columns in original table
-  // std::vector<int> indexed_columns_;
+    // keeps track of indexed columns in original table
+    // std::vector<int> indexed_columns_;
 };
 
 } // namespace cmudb
