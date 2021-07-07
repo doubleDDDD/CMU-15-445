@@ -41,7 +41,6 @@ public:
 
   // helper methods
   page_id_t GetNextPageId() const;
-
   void SetNextPageId(page_id_t next_page_id);
 
   KeyType KeyAt(int index) const;
@@ -51,26 +50,22 @@ public:
   const MappingType &GetItem(int index);
 
   // insert and delete methods
-  int Insert(const KeyType &key, const ValueType &value,
-             const KeyComparator &comparator);
+  int Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator);
+  bool Lookup(const KeyType &key, ValueType &value, const KeyComparator &comparator) const;
+  int RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &comparator);
 
-  bool Lookup(const KeyType &key, ValueType &value,
-              const KeyComparator &comparator) const;
-
-  int RemoveAndDeleteRecord(const KeyType &key,
-                            const KeyComparator &comparator);
   // Split and Merge utility methods
-  void MoveHalfTo(BPlusTreeLeafPage *recipient,
-                  BufferPoolManager *buffer_pool_manager /* Unused */);
+  void MoveHalfTo(BPlusTreeLeafPage *recipient, BufferPoolManager *buffer_pool_manager /* Unused */);
 
-  void MoveAllTo(BPlusTreeLeafPage *recipient, int /* Unused */,
-                 BufferPoolManager * /* Unused */);
+  void MoveAllTo(BPlusTreeLeafPage *recipient, int /* Unused */, BufferPoolManager * /* Unused */);
 
-  void MoveFirstToEndOf(BPlusTreeLeafPage *recipient,
-                        BufferPoolManager *buffer_pool_manager);
+  void MoveFirstToEndOf(BPlusTreeLeafPage *recipient, BufferPoolManager *buffer_pool_manager);
 
-  void MoveLastToFrontOf(BPlusTreeLeafPage *recipient, int parentIndex,
-                         BufferPoolManager *buffer_pool_manager);
+  void MoveLastToFrontOf(BPlusTreeLeafPage *recipient, int parentIndex, BufferPoolManager *buffer_pool_manager);
+
+  int GetKeySize() const { return key_size; }
+  void SetKeySize(int size) { key_size = size; }
+  void IncreaseKeySize(int amount) { key_size += amount; }
 
   // Debug
   std::string ToString(bool verbose = false) const;
@@ -79,10 +74,11 @@ private:
   void CopyHalfFrom(MappingType *items, int size);
   void CopyAllFrom(MappingType *items, int size);
   void CopyLastFrom(const MappingType &item);
-  void CopyFirstFrom(const MappingType &item, int parentIndex,
-                     BufferPoolManager *buffer_pool_manager);
+  void CopyFirstFrom(const MappingType &item, int parentIndex, BufferPoolManager *buffer_pool_manager);
 
   page_id_t next_page_id_;
+  // 节点的 容量 与 real_order 都在基类中，这里我想要保存一下 key 的大小，因为能否 insert 一个 k 是取决于 k 的大小的
+  int key_size;  // k 的数量，最大是 阶-1，叶子节点能够再 insert 一个值就取决于该值
   /** 
    * b+ tree 叶子节点所在的页 
    * put a variable-sized array at the end of a structure 

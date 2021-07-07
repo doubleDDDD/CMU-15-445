@@ -58,7 +58,7 @@ public:
     int GetLocalDepth(int bucket_id) const;
     // 返回桶总数
     int GetNumBuckets() const;
-    // show hash table
+    // show hash table, 更加专业的做法是 tostring
     void Show() const;
 
     // friend std::ostream& operator << (std::ostream& os, const std::map<K, V>& tmp){

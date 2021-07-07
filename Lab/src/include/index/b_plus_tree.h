@@ -26,6 +26,7 @@
 #include "page/b_plus_tree_internal_page.h"
 #include "page/b_plus_tree_leaf_page.h"
 
+// 现在看来这个宏是必须要的了
 #define DEBUG_TREE_SHOW
 
 namespace cmudb {
@@ -61,9 +62,6 @@ public:
     IndexIterator<KeyType, ValueType, KeyComparator> Begin();
     IndexIterator<KeyType, ValueType, KeyComparator> Begin(const KeyType &key);
 
-    // Print this B+ tree to stdout using a simple command-line
-    std::string ToString(bool verbose = false);
-
     // read data from file and insert one by one
     void InsertFromFile(const std::string &file_name,
                         Transaction *transaction = nullptr);
@@ -84,8 +82,11 @@ public:
     // b+ tree 叶子节点分配后都会将阶指定为一个节点所能够容纳的最大值，所以这里需要reset一下，以tree的阶为准
     void ReSetPageOrder(BPlusTreePage *);
 
-    void Show() const;
-    void PrintSingleNode(BPlusTreePage *) const;
+    // Print this B+ tree to stdout using a simple command-line
+    std::string ToString(bool verbose = false);
+
+    // void Show() const;
+    // void PrintSingleNode(BPlusTreePage *) const;
 
 private:
     class Checker {

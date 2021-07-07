@@ -15,12 +15,12 @@ namespace cmudb
 
 /*****************************************************************************
  * HELPER METHODS AND UTILITIES
- * 叶子节点相比于中间节点好像要简单一些
+ * b+ tree 的每一个 node 除了 kv 之外，还有一个 header，可以被视作是 meta 数据
+ * 不要用那个抽象的 B+ tree 示意图去理解代码，示意图真的是高度抽象的
+ * 代码的实现是有区别的，发现作者写的这个也不是一个优美的做法
  *****************************************************************************/
 
 /**
- * b+ tree 的每一个 node 除了 kv 之外，还有一个 header，可以被视作是meta数据
- *  这个在实际实现过程中与看数据结构示意图的过程中还是有差异的
  * Init method after creating a new leaf page
  * Including set page type, set current size to zero, set page id/parent id, set
  * next page id and set max size
@@ -33,7 +33,8 @@ BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Init(
     // set page type
     SetPageType(IndexPageType::LEAF_PAGE);
     // set current size: 1 for the first invalid key
-    SetSize(0);
+    // SetSize(0);
+    SetKeySize(0);
     // set page id
     SetPageId(page_id);
     // set parent id
@@ -41,11 +42,9 @@ BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Init(
     // set next page id
     SetNextPageId(INVALID_PAGE_ID);
 
-    // set max page size, header is 28bytes，这里好像并没有保留叶子节点上成链的那个 slot
-    // 这里是一个很重要的参考，在这个基础上要减少1才是实际能够容纳的节点的数量
-    // 叶子节点要预留最后一个成list指针的位置
-    int size = (PAGE_SIZE - sizeof(BPlusTreeLeafPage)) / (sizeof(KeyType) + sizeof(ValueType)) - 1;
-    SetMaxSize(size);
+    // set max capacity
+    int size = (PAGE_SIZE - sizeof(BPlusTreeLeafPage)) / (sizeof(KeyType) + sizeof(ValueType));
+    SetMaxCapacity(size);
 }
 
 /**
@@ -119,6 +118,7 @@ const MappingType &BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::GetItem
  * 要注意这个已经是叶子节点的方法了，确定叶子节点要调用者来搞定
  * 这里并没有判断叶子节点能够新增element，所以应该是调用者来判断叶子节点能够继续添加的，否则需要split
  * 叶子节点的kv都是有直接对应关系的 (不存在那个错位的问题 )，只是最后一个不用，最后一个kv中，k是无效的，v指向下一个叶子节点
+ * 这里就是一个简单的按顺序插入，其它什么都不需要 care
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Insert(
@@ -128,8 +128,7 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Insert(
     // 为空或者要插入的值比当前最大的还大
     // 真的是底层写好之后，上面的逻辑确实是在调包
     // k的下标是从0开始的，最大的下标是 GetSize()-1 但是这里最后一个v不应该是需要保留的么
-    if (GetSize() == 0 || comparator(key, KeyAt(GetSize() - 1)) > 0)
-    {
+    if (GetSize() == 0 || comparator(key, KeyAt(GetSize() - 1)) > 0) {
         array[GetSize()] = {key, value};  // 可以看到，如果是第一个kv对，是要用 slot 0 的
     }
     // 要插入的值当前最小的还小
@@ -178,12 +177,14 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
     /**
      * @brief recipient 是 new node，即 new page
      * 就是b+ tree叶子节点的分裂过程
+     * 这里与 旧金山大学数据结构可视化的实现相一致
+     * 将多的后半段copy到L2
      */
     assert(GetSize() > 0);
 
-    int size = GetSize() / 2;  // 这是向下取整的
+    int size = GetSize() / 2;  // 这是向下取整的，如果阶是3，则这里的 size=1
     MappingType *src = array + GetSize() - size;  // 确定 src 的地址并修改 src page 的 header
-    recipient->CopyHalfFrom(src, size);  // 直接调用 dst 的 copy 函数，完成node内容的迁移
+    recipient->CopyHalfFrom(src, size);  // 直接调用 dst 的 copy 函数，完成 node 内容的迁移
     IncreaseSize(-1 * size);
 }
 
@@ -400,41 +401,28 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
  * DEBUG
  *****************************************************************************/
 template <typename KeyType, typename ValueType, typename KeyComparator>
-std::string BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    ToString(bool verbose) const
+std::string BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::ToString(bool verbose) const
 {
-  if (GetSize() == 0)
-  {
-    return "";
-  }
-  std::ostringstream stream;
-  if (verbose)
-  {
-    stream << "[" << GetPageId() << "-" << GetParentPageId() << "]";
-  }
-  int entry = 0;
-  int end = GetSize();
-  bool first = true;
+    if (GetSize() == 0) { return ""; }
+    std::ostringstream stream;
+    if (verbose) {stream << "[" << GetPageId() << ":" << GetParentPageId() << "]"; }
+    int entry = 0;
+    int end = GetSize();
+    bool first = true;
 
-  while (entry < end)
-  {
-    if (first)
+    while (entry < end)
     {
-      first = false;
+        if (first) { first = false;}
+        else { stream << " "; }
+        stream << std::dec << " " << array[entry].first;
+        if (verbose)
+        { stream << " (" << array[entry].second << ")";}
+        ++entry;
+        stream << " ";
     }
-    else
-    {
-      stream << " ";
-    }
-    stream << std::dec << " " << array[entry].first;
-    if (verbose)
-    {
-      stream << " (" << array[entry].second << ")";
-    }
-    ++entry;
-    stream << " ";
-  }
-  return stream.str();
+
+    std::cout << stream.str() << std::endl;
+    return stream.str();
 }
 
 template class BPlusTreeLeafPage<GenericKey<4>, RID, GenericComparator<4>>;

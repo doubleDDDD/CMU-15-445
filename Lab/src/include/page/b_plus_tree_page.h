@@ -36,6 +36,7 @@ enum class IndexPageType { INVALID_INDEX_PAGE = 0, LEAF_PAGE, INTERNAL_PAGE };
 
 /**
  * @brief 均为中间节点与叶子节点的公共方法以及属性
+ * 我才发现，BPlusTreePage 是非模板的类
  */
 class BPlusTreePage 
 {
@@ -44,17 +45,18 @@ public:
     bool IsRootPage() const;  /* 是否 root 节点 */
     void SetPageType(IndexPageType page_type);  /* helper */
 
-    int GetSize() const;
-    void SetSize(int size);
-    void IncreaseSize(int amount);
+    // int GetSize() const;
+    // void SetSize(int size);
+    // void IncreaseSize(int amount);
 
-    int GetMaxSize() const;
-    /**
-     * @brief 这个地方为啥不是 tree 的属性呢，即 b+ tree 的秩
-     * 目前的实现是搞满的，应该加一个参数因子啥的，取值是 1/2 或 2/3, 或者直接set这个值到节点
-     */
-    void SetMaxSize(int max_size);
-    int GetMinSize() const;
+    int GetMaxCapacity() const;
+    void SetMaxCapacity(int);
+
+    // 主要是计算有些内容的时候，用节点自己的秩方便一些，尽管节点的计算都是在 tree 下做的，但是这个秩我希望只 set 一次
+    int GetOrder() const;
+    void SetOrder(int);
+
+    // int GetMinSize() const;
 
     page_id_t GetParentPageId() const;
     void SetParentPageId(page_id_t parent_page_id);
@@ -70,9 +72,24 @@ public:
 private:
     // member variable, attributes that both internal and leaf page share
     IndexPageType page_type_;
-    lsn_t lsn_;
-    int size_;   // b+tree 当前的大小，即kv的数量，不能超过最大值，即秩 
-    int max_size_;  // b+tree的一个节点可以最大容纳的值一般是节点容量的一半到2/3。称为B+tree的秩
+    lsn_t lsn_;  // log sequence number
+    /**
+     * @brief size均指的是key的数量
+     * kv的第一个k是不用的
+     * 这里其实有一个tips，中间节点与叶子节点的一个区别
+     *  由于 header的存在，nextpageid 保存在了元数据中，不占叶子节点的kv数量，所以 kv 是实际使用的数量
+     *      即 kv 的数量代表的是 M-1，即 秩-1
+     *  在中间节点中，kv有一个总量，但是k与v差一个，所以 kv 的这值代表的是 秩，因为最后要弃用的是第一个kv的k，所以这个 size 代表的是 秩
+     * 忽然就觉得有点蛋疼了这里
+     * 叶子节点的所有kv都能拿来用，v最大是 秩-1。如果就直观的用 kv 对来表示的话，叶子节点中的 size 是 key 的数量
+     * 中间节点的第一个kv的key需要失效，v的最大数量就是秩。而中间节点的 size 是 value 的数量
+     * 核心就是叶子节点的 key 可以全部使用，最后那个成 list 的 V 被放到了 header 的 meta 数据中
+     * size 在叶子节点与中间节点的含义是不同的，所以 size 这个量也放到各自的派生类中定义
+     */
+    // int size_;
+    // int max_size_;
+    int max_kv_capacity_;  // 存储空间上能够容纳的 kv 的最大数量
+    int real_order_;  // 真实的b+tree的秩
     page_id_t parent_page_id_;
     page_id_t page_id_;
     int layer;  // b+ tree 节点所处的层号

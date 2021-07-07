@@ -54,18 +54,24 @@ public:
     void MoveAllTo(BPlusTreeInternalPage *recipient, int index_in_parent, BufferPoolManager *buffer_pool_manager);
     void MoveFirstToEndOf(BPlusTreeInternalPage *recipient, BufferPoolManager *buffer_pool_manager);
     void MoveLastToFrontOf(BPlusTreeInternalPage *recipient, int parent_index, BufferPoolManager *buffer_pool_manager);
+
+    int GetValueSize() const  { return v_size; }
+    void SetValueSize(int size) { v_size = size; }
+    void IncreaseValueSize(int amount) { v_size += amount; }
+
     // DEBUG and PRINT
     std::string ToString(bool verbose = false) const;
+
+    // 将节点的kv入队
     void QueueUpChildren(std::queue<BPlusTreePage *> *queue, BufferPoolManager *buffer_pool_manager);
 private:
-    void CopyHalfFrom(MappingType *items, int size,
-                        BufferPoolManager *buffer_pool_manager);
-    void CopyAllFrom(MappingType *items, int size,
-                        BufferPoolManager *buffer_pool_manager);
-    void CopyLastFrom(const MappingType &pair,
-                        BufferPoolManager *buffer_pool_manager);
-    void CopyFirstFrom(const MappingType &pair, int parent_index,
-                        BufferPoolManager *buffer_pool_manager);
+    void CopyHalfFrom(MappingType *items, int size, BufferPoolManager *buffer_pool_manager);
+    void CopyAllFrom(MappingType *items, int size, BufferPoolManager *buffer_pool_manager);
+    void CopyLastFrom(const MappingType &pair, BufferPoolManager *buffer_pool_manager);
+    void CopyFirstFrom(const MappingType &pair, int parent_index, BufferPoolManager *buffer_pool_manager);
+
+    int v_size;  // 节点中 v 的数量，即tree的秩，v-1就是key的数量
+
     MappingType array[0];
 };
 } // namespace cmudb

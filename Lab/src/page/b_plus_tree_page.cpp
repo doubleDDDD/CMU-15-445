@@ -8,6 +8,7 @@ namespace cmudb {
 /*
  * Helper methods to get/set page type
  * Page type enum class is defined in b_plus_tree_page.h
+ * 可以是root节点，也可以不是root节点，这个判断是足够的
  */
 bool
 BPlusTreePage::IsLeafPage() const {
@@ -29,21 +30,24 @@ BPlusTreePage::SetPageType(IndexPageType page_type) {
  * Helper methods to get/set size (number of key/value pairs stored in that
  * page)
  */
-int BPlusTreePage::GetSize() const { return size_; }
-void BPlusTreePage::SetSize(int size) { size_ = size; }
-void BPlusTreePage::IncreaseSize(int amount) { size_ += amount; }
+// int BPlusTreePage::GetSize() const { return size_; }
+// void BPlusTreePage::SetSize(int size) { size_ = size; }
+// void BPlusTreePage::IncreaseSize(int amount) { size_ += amount; }
 
 /*
  * Helper methods to get/set max size (capacity) of the page
  */
-int BPlusTreePage::GetMaxSize() const { return max_size_; }
-void BPlusTreePage::SetMaxSize(int size) { max_size_ = size; }
+int BPlusTreePage::GetMaxCapacity() const { return max_kv_capacity_; }
+void BPlusTreePage::SetMaxCapacity(int capacity_) { max_kv_capacity_ = capacity_; }
+    
+int BPlusTreePage::GetOrder() const { return real_order_; }
+void BPlusTreePage::SetOrder(int order_) { real_order_= order_; }
 
 /*
  * Helper method to get min page size
  * Generally, min page size == max page size / 2
  */
-int BPlusTreePage::GetMinSize() const { return max_size_/2; }
+// int BPlusTreePage::GetMinSize() const { return max_size_/2; }
 
 /*
  * Helper methods to get/set parent page id

@@ -26,18 +26,18 @@ BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Init(
     // set page type
     SetPageType(IndexPageType::INTERNAL_PAGE);
     // set current size: 1 for the first invalid key
-    SetSize(1);
+    // SetSize(1);
+    SetValueSize(1);
     // set page id
     SetPageId(page_id);
     // set parent id
     SetParentPageId(parent_id);
     /**
      * @brief set max page size, header is 24bytes
-     * izeof(BPlusTreeInternalPage) is the header
-     * 剩下的空间就用来连续的存放数组，数组元素是kv
+     * sizeof(BPlusTreeInternalPage) is the header
      */
     int size = (PAGE_SIZE - sizeof(BPlusTreeInternalPage)) / (sizeof(KeyType) + sizeof(ValueType));
-    SetMaxSize(size);
+    SetMaxCapacity(size);
 }
 
 /*
@@ -436,17 +436,15 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
  * DEBUG
  *****************************************************************************/
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    QueueUpChildren(std::queue<BPlusTreePage *> *queue,
-                    BufferPoolManager *buffer_pool_manager)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::QueueUpChildren(
+    std::queue<BPlusTreePage *> *queue, BufferPoolManager *buffer_pool_manager)
 {
+    // 就是子节点入队的操作
   for (int i = 0; i < GetSize(); i++)
   {
     auto *page = buffer_pool_manager->FetchPage(array[i].second);
-    if (page == nullptr)
-    {
-      throw Exception(EXCEPTION_TYPE_INDEX,
-                      "all page are pinned while printing");
+    if (page == nullptr) {
+      throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while printing");
     }
     auto *child = reinterpret_cast<BPlusTreePage *>(page->GetData());
     assert(child->GetParentPageId() == GetPageId());
@@ -455,41 +453,27 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-std::string BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    ToString(bool verbose) const
+std::string BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::ToString(bool verbose) const
 {
-  if (GetSize() == 0)
-  {
-    return "";
-  }
-  std::ostringstream os;
-  if (verbose)
-  {
-    os << "[" << GetPageId() << "-"
-       << GetParentPageId() << "]";
-  }
-  int entry = verbose ? 0 : 1;
-  int end = GetSize();
-  bool first = true;
-  while (entry < end)
-  {
-    if (first)
+    if (GetSize() == 0) {return "";}
+    std::ostringstream os;
+    if (verbose) {os << "[" << GetPageId() << "-" << GetParentPageId() << "]"; }
+
+    int entry = verbose ? 0 : 1;
+    int end = GetSize();
+    bool first = true;
+
+    while (entry < end)
     {
-      first = false;
+        if (first) {first = false;}
+        else { os << " "; }
+        os << std::dec << " " << array[entry].first.ToString();
+        if (verbose) { os << "(" << array[entry].second << ")"; }
+        ++entry;
+        os << " ";
     }
-    else
-    {
-      os << " ";
-    }
-    os << std::dec << " " << array[entry].first.ToString();
-    if (verbose)
-    {
-      os << "(" << array[entry].second << ")";
-    }
-    ++entry;
-    os << " ";
-  }
-  return os.str();
+    std::cout << os.str() << std::endl;
+    return os.str();
 }
 
 // valuetype for internalNode should be page id_t

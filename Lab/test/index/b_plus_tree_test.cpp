@@ -54,6 +54,8 @@ TEST(BPlusTreeTests, InsertTest1)
         tree.Insert(index_key, rid, transaction);
     }
 
+    tree.ToString(true);
+
     return;
 
     std::vector<RID> rids;

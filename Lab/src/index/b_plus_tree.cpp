@@ -15,7 +15,13 @@
 /**
  * @brief 
  * 利用旧金山大学的数据结构可视化工具去理解了一下b+tree
- * b+tree有一个属性称为秩。这个是要提前预设的，
+ * b+tree有一个属性称为秩。这个是要提前预设的
+ * 重新理解一下这个叶子节点中的 kv 对
+ *  对于叶子节点，kv是真实对应的，磁盘中不会有指针这种东西，所以这个 v 实际上就是一个 tuple 在磁盘文件中的位置
+ *  即 page number 以及 slot number，这个是 B+tree 中真实的数据结构，真正其 索引 作用的结构
+ *  其它的中间节点可以理解为索引kv的 index，两种节点的 v 的类型是不一致的
+ *  所以对于叶子节点，kv就直接对应上就完事了
+ *  作者这里的 size 指的是 key 的数量，应该是比v的个数小 1 的
  */
 
 namespace cmudb
@@ -103,14 +109,12 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 bool BPlusTree<KeyType, ValueType, KeyComparator>::Insert(
     const KeyType &key, const ValueType &value, Transaction *transaction)
 {
-    // 互斥锁
+    // 互斥锁, 如果想要在一个函数中的一部分采用锁，则可以采用中括号用来作为作用域
     {
         std::lock_guard<std::mutex> lock(mutex_);
         // 如果树为空就新建一棵树
-        if (IsEmpty())
-        {
-            StartNewTree(key, value);
-            Show();
+        if (IsEmpty()) {
+            StartNewTree(key, value); // 一定是 insert 到 page 节点中的
             return true;
         }
     }
@@ -136,8 +140,8 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::StartNewTree(
     /**
      * @brief 可以看到 disk manager 不会去 care 这个 page 是存数据库的内容还是存索引
      * 反正你就顺序的去加就可以了
-     * 就目前看来，数据库的内容与index是位于同一个文件在
-     * 在 page 这个粒度上，DBMS并没有去care这些内容在磁盘上是否要顺序存放
+     * 就目前看来，数据库的内容与index是位于同一个文件
+     * 在 page 这个粒度上，DBMS 并没有去 care 这些内容在磁盘上是否要顺序存放
      */
     auto *page = buffer_pool_manager_->NewPage(root_page_id_);
     if (page == nullptr) {
@@ -154,16 +158,15 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::StartNewTree(
     UpdateRootPageId(true);
     // b+tree 的node节点是内存中的一个page，除了kv之外还有一些元数据被保存在 page 首部
     // 初始化 size=0，但是 maxsize 就是所有能够容纳kv的数量
-    // 在 init 之后再 set 一下 maxsize 作为B+ tree 的秩，方便测试的
-    root->Init(root_page_id_, INVALID_PAGE_ID);
-
+    // 在 init 之后再 set 一下 maxsize 作为B+ tree 的秩，方便测试的，key的数量是要小于秩的
+    root->Init(root_page_id_, INVALID_PAGE_ID);  // parent id 是 -1 代表的是 root 节点
     // reset, if show debug is not defined, the func is a empty func
-    // 规则也保证了b+tree的阶数至少是1
+    // 规则也保证了 b+tree 的阶数至少是2
     ReSetPageOrder(root);
 
     /**
      * @brief root节点的插入方法，value在本例中是一个指向 数据 page 的指针
-     * 从这里可以看出来在b+tree的创建过程中，最开始root节点就是叶子节点
+     * 从这里可以看出来在 b+tree 的创建过程中，最开始 root 节点就是叶子节点
      */
     root->Insert(key, value, comparator_);
 
@@ -174,7 +177,7 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::StartNewTree(
 /*
  * Insert constant key & value pair into leaf page
  *  插入节点是有可能会造成 b+tree 的分裂的
- *  现在知道了，在一个b+tree中，所谓的指针就是 page number，难道没有搞一个 page 内的 offset 么，不知道开销是否大
+ *  b+ tree 的本质是一个排序的 kv, 所以假如要 insert 的是 x，只要找到距离 x 最近的 v，然后 insert 即可
  * User needs to first find the right leaf page as insertion target, then look
  * through leaf page to see whether insert key exist or not. If exist, return
  * immediately, otherwise insert entry. Remember to deal with split if necessary.
@@ -188,16 +191,17 @@ BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
 {
     // 先找到正确的叶子节点，在这个过程中，什么都不需要care，只要找到即可，最次就是在最左边或最右边
     // 找到之后检查能够正常的 insert，这里找到的一定是叶子节点
+    // 要确定这里 insert 的目标是叶子节点，所以不存在 kv 错位的问题
     auto *leaf = FindLeafPage(key, false, Operation::INSERT, transaction);
     if (leaf == nullptr) { return false; }
 
     ValueType v;
     // 如果树中已经有值了，就返回false
-    if (leaf->Lookup(key, v, comparator_))
-    {
+    if (leaf->Lookup(key, v, comparator_)) {
         UnlockUnpinPages(Operation::INSERT, transaction);
         return false;
     }
+
     /**
      * @brief 如果已经直接调用了叶子节点的 insert 方法，那么意味着是能够顺利 insert 的，即由调用方在确定是否可以顺利insert
      * 实际上调用方就是 b+tree 的对象，是具有全局视角的一个对象，由它去 control 所有的节点 
@@ -208,18 +212,25 @@ BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
     {
         /**
          * @brief 如果一个叶子节点的空间不够了，如果插入后就会超过预设的秩
-         * 这个时候就必须要分裂叶子节点了，因为 b+tree 所要求的 k 的个数最小是秩的一半，最大不超过秩
-         * 所以就是创建一个新的节点 L2，然后平均分配 L 中的 kv 到 L 与 L2
-         * 然后L的父节点中也应该insert一个pointer指向L1,所以这里是有向父节点 insert k 的，父节点也有分裂的可能
-         * 这里不同于B tree，B+tree 的中间节点保存的是key的一个copy，所以L以及L2的父节点要新增一个 copy 的 key
-         * 如果父节点需要分裂，则需要将key向上copy，最终可能传递到root节点，那么b+tree则新增一层
-         * 分裂如果导致不满足 B+tree 的限制条件后，则一直传递到父节点，父节点分裂后，可能导致层数的增大
-         * L的后一半丢给了L2
-         * 分裂完成后，实际上并未插入，这个实现把一个节点用满了，所以是没有办法先插入，再处理的
-         *  如果我规定B+tree的秩就是最大的一半，那么是完全可以先 insert 后 check 并分裂的
-         * 这个写法有点奇怪，之后我自己 change 其中一部分
+         * 测试学习的秩 =3
+         *      叶子节点中 kv 对的数量是 3
+         *      所以 1 2 3 都是可以 insert 到
+         * 目前作者的实现，是把一个节点的秩用满了，所以没法先insert，再check，只能先 check，再分裂，再 insert
+         *  我认为是一个不太好的实现方式
+         * 所以我还是想要保证一下用户指定的秩在 1/2 或 2/3 左右，能够支持先 insert，再 check，然后再 split
+         *  算了，好像还是我的实现是不太合适的
+         * 
+         * 
+         * 这个时候就必须要分裂叶子节点了，叶子节点分裂的结果是两个叶子节点，kv是没有错位情况的
+         * k是不能大于秩 M 的，就能够保证 v 的最大值就是 M
+         * 现在在叶子节点中 insert 一个 k 后，k的数量将达到秩
+         * 
+         * 创建一个新的 node，并将当前叶子节点中的 一般 copy 到新的 node 中
+         * 如果我测试的 b+ tree 的秩为3，即一个节点中的k的数量最大是2，最小是1 
+         * 3/2=1，所以一半最小是1
+         * 后半部分 copy 到 L2
          */
-        auto *leaf2 = Split<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>(leaf);  /* 创建新 node，并完成一半的 copy */
+        auto *leaf2 = Split<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>(leaf);
         /**
          * @brief 在分裂一半的基础上+1基本是不可能超出范围的，这个写法不是很好，之后修改掉
          */
@@ -271,6 +282,8 @@ N *BPlusTree<KeyType, ValueType, KeyComparator>::Split(N *node)
     auto new_node = reinterpret_cast<N *>(page->GetData());
     /* N可能是叶子节点也可能是中间节点，叶子节点与中间节点都有自己的init方法 */
     new_node->Init(page_id);
+    // reset order
+    ReSetPageOrder(new_node);
 
     /* 被分裂节点的movehalfto方法 */
     node->MoveHalfTo(new_node, buffer_pool_manager_);
@@ -886,6 +899,7 @@ BPlusTree<KeyType, ValueType, KeyComparator>::UpdateRootPageId(bool insert_recor
         header_page->InsertRecord(index_name_, root_page_id_);
     }
     else
+
     {
         // update root_page_id in header_page
         header_page->UpdateRecord(index_name_, root_page_id_);
@@ -897,57 +911,54 @@ BPlusTree<KeyType, ValueType, KeyComparator>::UpdateRootPageId(bool insert_recor
 /*
  * This method is used for debug only
  * print out whole b+tree structure, rank by rank
+ * 基本思路就是二叉树的层次遍历，要用一个队列，首先root入队，然后一直出队，如果出队了，就需要将出队节点的所有children入队
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-std::string BPlusTree<KeyType, ValueType, KeyComparator>::
-    ToString(bool verbose)
+std::string BPlusTree<KeyType, ValueType, KeyComparator>::ToString(bool verbose)
 {
-  if (IsEmpty())
-  {
-    return "Empty tree";
-  }
-  std::queue<BPlusTreePage *> todo, tmp;
-  std::stringstream tree;
-  auto node = reinterpret_cast<BPlusTreePage *>(
-      buffer_pool_manager_->FetchPage(root_page_id_));
-  if (node == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while printing");
-  }
-  todo.push(node);
-  bool first = true;
-  while (!todo.empty())
-  {
-    node = todo.front();
-    if (first)
-    {
-      first = false;
-      tree << "| ";
+    if (IsEmpty()) { return "Empty tree"; }
+    std::queue<BPlusTreePage *> todo, tmp;
+    std::stringstream tree;
+    auto node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(root_page_id_));
+    if (node == nullptr) {
+        throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while printing");
     }
-    // leaf page, print all key-value pairs
-    if (node->IsLeafPage())
+
+    todo.push(node);
+    bool first = true;
+
+    while (!todo.empty())
     {
-      auto page = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(node);
-      tree << page->ToString(verbose) << "| ";
+        node = todo.front();
+        if (first) {
+            first = false;
+            tree << "| ";
+        }
+
+        // leaf page, print all key-value pairs
+        if (node->IsLeafPage()) {
+            auto page = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(node);
+            tree << page->ToString(verbose) << "| ";
+        }
+        else {
+            auto page = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(node);
+            tree << page->ToString(verbose) << "| ";
+            page->QueueUpChildren(&tmp, buffer_pool_manager_);  // 这里就是所有子节点入临时队列
+        }
+
+        // 这里多加了一个临时的 queue,一层的节点全部处理完成之后，才会处理下一层的数据
+        todo.pop();
+        if (todo.empty() && !tmp.empty()) {
+            todo.swap(tmp);
+            tree << '\n';
+            first = true;
+        }
+
+        // 如果本层的没有处理完成的话，tmp就相当于是攒下来了，一层一层处理的这个过程非常贴切
+        // unpin node when we are done
+        buffer_pool_manager_->UnpinPage(node->GetPageId(), false);
     }
-    else
-    {
-      auto page = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(node);
-      tree << page->ToString(verbose) << "| ";
-      page->QueueUpChildren(&tmp, buffer_pool_manager_);
-    }
-    todo.pop();
-    if (todo.empty() && !tmp.empty())
-    {
-      todo.swap(tmp);
-      tree << '\n';
-      first = true;
-    }
-    // unpin node when we are done
-    buffer_pool_manager_->UnpinPage(node->GetPageId(), false);
-  }
-  return tree.str();
+    return tree.str();
 }
 
 /*
@@ -1004,77 +1015,83 @@ void
 BPlusTree<KeyType, ValueType, KeyComparator>::ReSetPageOrder(
     BPlusTreePage *node)
 {
+    /**
+     * @brief 指定秩，B+ tree 的秩的最小值是2，最大不能超过容量，叶子节点的秩是可以比 kv 总量大一个
+     * 但是这里就以小的那个为准
+     */
 #ifdef DEBUG_TREE_SHOW
-    if(order > node->GetMaxSize() || order <= 0) {
+    if(order > node->GetMaxCapacity() || order <= 1) {
+        // B+ tree 最少二阶，阶指的是 v 的数量，反正就是 kv 对的数量，k 需要空一个出来
         throw Exception(EXCEPTION_TYPE_OUT_OF_RANGE, "order of b+ tree is too big!");
     }
-    // b+tree 的阶这里做了限制，用户可以指定，但是绝不能大于最大值，这个最大值已经考虑到了最后的成list指针
-    node->SetMaxSize(order);
+    node->SetOrder();
 #endif
     return;
 }
 
-/**
-  * @brief 层次遍历节点，额外的空间保存节点
-  * 这里可以参考二叉树的层次遍历，思路是一样的
-  *  root 节点入队，开始遍历队列，并输出
-  *  节点出队后，检查左右节点是否为空，不为空则入队，左右子树均入队后，准备出队
-  *    任何节点出队，都要检查是否是否有左右子树，如果有的话，则继续入队
-  */
-template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTree<KeyType, ValueType, KeyComparator>::Show() const
-{
-#ifdef DEBUG_TREE_SHOW
-    std::queue<BPlusTreePage *> nodequeu;  // 用于存放同一层次的 node
-    auto rootnode = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(root_page_id_));
-    nodequeu.push(rootnode);  // root 节点入队
+// /**
+//   * @brief 层次遍历节点，额外的空间保存节点
+//   * 这里可以参考二叉树的层次遍历，思路是一样的
+//   *  root 节点入队，开始遍历队列，并输出
+//   *  节点出队后，检查左右节点是否为空，不为空则入队，左右子树均入队后，准备出队
+//   *    任何节点出队，都要检查是否是否有左右子树，如果有的话，则继续入队
+//   * 忽然发现人家有对应的 debug show
+//   */
+// template <typename KeyType, typename ValueType, typename KeyComparator>
+// void BPlusTree<KeyType, ValueType, KeyComparator>::Show() const
+// {
+// #ifdef DEBUG_TREE_SHOW
+//     std::queue<BPlusTreePage *> nodequeu;  // 用于存放同一层次的 node
+//     auto node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(root_page_id_));
+//     nodequeu.push(node);  // root 节点入队
 
-    while(!nodequeu.empty()){
-        // 尝试出队节点，都是一个一个出队的，但是入队可能是一批一批入队的
-        auto node = nodequeu.front();
-        if(node->IsLeafPage()) {
-            BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> * node = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(node);
-            node->ToString(true);
-        } else { 
-            BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> * node = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *>(node);
-            node->ToString(true);
-        }
+//     while(!nodequeu.empty()){
+//         // 尝试出队节点，都是一个一个出队的，但是入队可能是一批一批 (二叉树的话就是左右子树，度多的树的话就是所有的子节点) 入队的
+//         node = nodequeu.front();
+//         if(node->IsLeafPage()) {
+//             auto page = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(node);
+//             page->ToString(true);
+//         } else { 
+//             // 这里写错了，中间节点的模板参数list，在internal.cpp中就已经定义的就是 page_id_t
+//             auto page = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(node);
+//             page->ToString(true);
+//         }
 
-        nodequeu.pop();
-        // for(){
-        //     // 所有子节点入队
-        // }
-    }
-#endif
-    return;
-}
+//         nodequeu.pop();
+//         // for(){
+//         //     // 所有子节点入队
+//         // }
+//     }
+// #endif
+//     return;
+// }
 
-template <typename KeyType, typename ValueType, typename KeyComparator>
-void
-BPlusTree<KeyType, ValueType, KeyComparator>::PrintSingleNode(BPlusTreePage *node) const 
-{
+// template <typename KeyType, typename ValueType, typename KeyComparator>
+// void
+// BPlusTree<KeyType, ValueType, KeyComparator>::PrintSingleNode(BPlusTreePage *node) const 
+// {
 
-    // std::queue<BPlusTreePage> _children;
-    // _children.clear();
+//     // std::queue<BPlusTreePage> _children;
+//     // _children.clear();
 
-    // node->GetLayerId();
-    // node->GetMaxSize();
-    // node->GetPageId();
-    // node->GetSize()
-    // node->GetMinSize()
+//     // node->GetLayerId();
+//     // node->GetMaxSize();
+//     // node->GetPageId();
+//     // node->GetSize()
+//     // node->GetMinSize()
 
 
-    // for(  ){
-    //     // 打印自己，push_back 子节点
-    //     if(!node->IsLeafPage) { _children.push_back(childnode); }
-    // }
+//     // for(  ){
+//     //     // 打印自己，push_back 子节点
+//     //     if(!node->IsLeafPage) { _children.push_back(childnode); }
+//     // }
 
-    // if(!_children.empty()){
-    //     for() { PrintSingleNode(); }
-    // }
+//     // if(!_children.empty()){
+//     //     for() { PrintSingleNode(); }
+//     // }
 
-    return;
-}
+//     return;
+// }
 
 
 template class BPlusTree<GenericKey<4>, RID, GenericComparator<4>>;
