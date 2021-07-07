@@ -55,7 +55,7 @@ public:
     void MoveFirstToEndOf(BPlusTreeInternalPage *recipient, BufferPoolManager *buffer_pool_manager);
     void MoveLastToFrontOf(BPlusTreeInternalPage *recipient, int parent_index, BufferPoolManager *buffer_pool_manager);
     // DEBUG and PRINT
-    std::string ToString(bool verbose) const;
+    std::string ToString(bool verbose = false) const;
     void QueueUpChildren(std::queue<BPlusTreePage *> *queue, BufferPoolManager *buffer_pool_manager);
 private:
     void CopyHalfFrom(MappingType *items, int size,

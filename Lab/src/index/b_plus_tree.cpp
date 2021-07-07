@@ -110,6 +110,7 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::Insert(
         if (IsEmpty())
         {
             StartNewTree(key, value);
+            Show();
             return true;
         }
     }
@@ -1014,20 +1015,35 @@ BPlusTree<KeyType, ValueType, KeyComparator>::ReSetPageOrder(
 }
 
 /**
- * @brief show something about this b+ tree
- */
+  * @brief 层次遍历节点，额外的空间保存节点
+  * 这里可以参考二叉树的层次遍历，思路是一样的
+  *  root 节点入队，开始遍历队列，并输出
+  *  节点出队后，检查左右节点是否为空，不为空则入队，左右子树均入队后，准备出队
+  *    任何节点出队，都要检查是否是否有左右子树，如果有的话，则继续入队
+  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTree<KeyType, ValueType, KeyComparator>::Show() const
 {
 #ifdef DEBUG_TREE_SHOW
-    // 从 root 节点遍历，线程不安全，事务不安全
-    std::vector<BPlusTreePage> _children;  // 用于存放同一层次的 node
-    auto node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(root_page_id_));
-    PrintSingleNode(node, _children);  // root节点，负责打印 node 的 kv，并将所有的子节点 append 到队列 _children
+    std::queue<BPlusTreePage *> nodequeu;  // 用于存放同一层次的 node
+    auto rootnode = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(root_page_id_));
+    nodequeu.push(rootnode);  // root 节点入队
 
-    // 这个时候 children 中应该存在第二层的若干节点，这个时候的策略是要遍历第二层的所有节点，并将子节点追加到一个新的待处理队列中
-    for(auto i=_children.begin(), i!=_children.end(); ++i){
-        *i
+    while(!nodequeu.empty()){
+        // 尝试出队节点，都是一个一个出队的，但是入队可能是一批一批入队的
+        auto node = nodequeu.front();
+        if(node->IsLeafPage()) {
+            BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> * node = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(node);
+            node->ToString(true);
+        } else { 
+            BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> * node = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *>(node);
+            node->ToString(true);
+        }
+
+        nodequeu.pop();
+        // for(){
+        //     // 所有子节点入队
+        // }
     }
 #endif
     return;
@@ -1037,28 +1053,25 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 void
 BPlusTree<KeyType, ValueType, KeyComparator>::PrintSingleNode(BPlusTreePage *node) const 
 {
-    /**
-     * @brief 层次遍历节点，额外的空间保存节点
-     * 在每次遍历的时候，准备一个队列，在打印一个 node kv 的时候，将同一层的所有 node 全部如队，如此循环往复即可
-     */
-    std::vector<BPlusTreePage> _children;
-    _children.clear();
 
-    node->GetLayerId();
-    node->GetMaxSize();
-    node->GetPageId();
-    node->GetSize()
-    node->GetMinSize()
+    // std::queue<BPlusTreePage> _children;
+    // _children.clear();
+
+    // node->GetLayerId();
+    // node->GetMaxSize();
+    // node->GetPageId();
+    // node->GetSize()
+    // node->GetMinSize()
 
 
-    for(  ){
-        // 打印自己，push_back 子节点
-        if(!node->IsLeafPage) { _children.push_back(childnode); }
-    }
+    // for(  ){
+    //     // 打印自己，push_back 子节点
+    //     if(!node->IsLeafPage) { _children.push_back(childnode); }
+    // }
 
-    if(!_children.empty()){
-        for() { PrintSingleNode(); }
-    }
+    // if(!_children.empty()){
+    //     for() { PrintSingleNode(); }
+    // }
 
     return;
 }
