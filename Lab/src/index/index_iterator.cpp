@@ -28,7 +28,7 @@ IndexIterator<KeyType, ValueType, KeyComparator>::
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool IndexIterator<KeyType, ValueType, KeyComparator>::
 isEnd() {
-  return (leaf_ == nullptr || (index_ == leaf_->GetSize() &&
+  return (leaf_ == nullptr || (index_ == leaf_->GetKeySize() &&
       leaf_->GetNextPageId() == INVALID_PAGE_ID));
 }
 
@@ -45,7 +45,7 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 IndexIterator<KeyType, ValueType, KeyComparator> &IndexIterator<KeyType, ValueType, KeyComparator>::
 operator++() {
   ++index_;
-  if (index_ == leaf_->GetSize() && leaf_->GetNextPageId() != INVALID_PAGE_ID) {
+  if (index_ == leaf_->GetKeySize() && leaf_->GetNextPageId() != INVALID_PAGE_ID) {
     // first unpin leaf_, then get the next leaf
     page_id_t next_page_id = leaf_->GetNextPageId();
 

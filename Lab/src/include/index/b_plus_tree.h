@@ -27,7 +27,7 @@
 #include "page/b_plus_tree_leaf_page.h"
 
 // 现在看来这个宏是必须要的了
-#define DEBUG_TREE_SHOW
+// #define DEBUG_TREE_SHOW
 
 namespace cmudb {
 

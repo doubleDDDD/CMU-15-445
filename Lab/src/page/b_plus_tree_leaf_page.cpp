@@ -32,9 +32,8 @@ BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Init(
 {
     // set page type
     SetPageType(IndexPageType::LEAF_PAGE);
-    // set current size: 1 for the first invalid key
     // SetSize(0);
-    SetKeySize(0);
+    SetKeySize(0);  // 中间节点是需要 set 1 for 第一个无效的节点
     // set page id
     SetPageId(page_id);
     // set parent id
@@ -92,7 +91,7 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 KeyType BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::KeyAt(int index) const
 {
     // replace with your own code
-    assert(0 <= index && index < GetSize());
+    assert(0 <= index && index < GetKeySize());
     return array[index].first;
 }
 
@@ -115,7 +114,7 @@ const MappingType &BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::GetItem
 /*
  * Insert key & value pair into leaf page ordered by key
  * @return  page size after insertion
- * 要注意这个已经是叶子节点的方法了，确定叶子节点要调用者来搞定
+ * 要注意这个已经是叶子节点的方法了，确定叶子节点 以及叶子节点能否insert 要调用者来确定，但是讲道理在调用栈上都要 check
  * 这里并没有判断叶子节点能够新增element，所以应该是调用者来判断叶子节点能够继续添加的，否则需要split
  * 叶子节点的kv都是有直接对应关系的 (不存在那个错位的问题 )，只是最后一个不用，最后一个kv中，k是无效的，v指向下一个叶子节点
  * 这里就是一个简单的按顺序插入，其它什么都不需要 care
@@ -127,21 +126,25 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Insert(
 {
     // 为空或者要插入的值比当前最大的还大
     // 真的是底层写好之后，上面的逻辑确实是在调包
-    // k的下标是从0开始的，最大的下标是 GetSize()-1 但是这里最后一个v不应该是需要保留的么
-    if (GetSize() == 0 || comparator(key, KeyAt(GetSize() - 1)) > 0) {
-        array[GetSize()] = {key, value};  // 可以看到，如果是第一个kv对，是要用 slot 0 的
+    // 叶子节点 getsize 获得的是 k 的数量，即比 秩小一 的那个值
+    if (GetKeySize() == 0 || comparator(key, KeyAt(GetKeySize() - 1)) > 0) {
+        // 当前叶子节点为空 或 insert 的大于该节点中的最大 key
+        // c++ 11 就可以用花括号来为 std::pair 初始化，类型转换构造函数，std::make_pair 不是必须的
+        // std::pair(key, value);
+        array[GetKeySize()] = {key, value};
     }
+
     // 要插入的值当前最小的还小
-    else if (comparator(key, array[0].first) < 0)
-    {
+    else if (comparator(key, array[0].first) < 0) {
         // 整体向后搬一个 slot, 这些均为内存操作
-        memmove((void *)(array + 1), (void *)array, static_cast<size_t>(GetSize() * sizeof(MappingType)));
+        memmove(
+            (void *)(array + 1), 
+            (void *)array, 
+            static_cast<size_t>(GetKeySize() * sizeof(MappingType)));
         array[0] = {key, value};
-    }
-    else
-    {
+    } else {
         // 要插入的位置是一个居中的位置，因为是排序的key，所以采用二分查找
-        int low = 0, high = GetSize() - 1, mid;
+        int low = 0, high = GetKeySize() - 1, mid;
         while (low < high && low + 1 != high)
         {
             mid = low + (high - low) / 2;
@@ -154,14 +157,17 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Insert(
         }
         // move 剩下的部分，同样的这也都是内存操作，仅仅是使 page dirty
         memmove(
-            (void *)(array + high + 1), (void *)(array + high), static_cast<size_t>((GetSize() - high) * sizeof(MappingType)));
+            (void *)(array + high + 1), 
+            (void *)(array + high), 
+            static_cast<size_t>((GetKeySize() - high) * sizeof(MappingType)));
 
         array[high] = {key, value};
     }
 
-    IncreaseSize(1);  // b+tree 叶子节点中增加了一个元素
-    assert(GetSize() <= GetMaxSize());
-    return GetSize();
+    IncreaseKeySize(1);  // b+tree 叶子节点中增加了一个元素
+    assert(GetKeySize() <= GetMaxCapacity());
+    // assert(GetKeySize() < GetOrder()); 这里是有可能超过，我打算先 insert 再 split
+    return GetKeySize();
 }
 
 /*****************************************************************************
@@ -179,13 +185,20 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
      * 就是b+ tree叶子节点的分裂过程
      * 这里与 旧金山大学数据结构可视化的实现相一致
      * 将多的后半段copy到L2
+     * 
+     * 函数调用到这里的时候，新的 key 还没有 insert, 所以现在 key 的数量应该是 秩-1
+     * 如果秩是3, 则叶子节点中的key的数量达到2，并且要 insert 一个新 key 的时候，会调用到这里来
      */
-    assert(GetSize() > 0);
+    assert(GetKeySize() > 0);
 
-    int size = GetSize() / 2;  // 这是向下取整的，如果阶是3，则这里的 size=1
-    MappingType *src = array + GetSize() - size;  // 确定 src 的地址并修改 src page 的 header
-    recipient->CopyHalfFrom(src, size);  // 直接调用 dst 的 copy 函数，完成 node 内容的迁移
-    IncreaseSize(-1 * size);
+    int size = GetKeySize() / 2;  // 这是向下取整的，如果阶是3，则这里的 3/2=1
+    // src 是指向 MappingType( std::pair ) 的指针，所以 +1 -1 这种操作都是针对 std::pair 的
+    // MappingType *src = array + GetKeySize() - size;
+
+    MappingType *src = array + size;  // 前半部分保留在原 node 中的kv
+    int movesize = GetKeySize() - size;
+    recipient->CopyHalfFrom(src, movesize);
+    IncreaseKeySize(-1 * movesize);  // 并没有去清理不需要的kv，仅仅是把游标改了
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
@@ -197,7 +210,7 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::CopyHalfFrom(
     {
         array[i] = *items++;
     }
-    IncreaseSize(size);
+    IncreaseKeySize(size);
 }
 
 /*****************************************************************************

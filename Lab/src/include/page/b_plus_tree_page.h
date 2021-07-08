@@ -45,16 +45,21 @@ public:
     bool IsRootPage() const;  /* 是否 root 节点 */
     void SetPageType(IndexPageType page_type);  /* helper */
 
-    // int GetSize() const;
-    // void SetSize(int size);
-    // void IncreaseSize(int amount);
 
-    int GetMaxCapacity() const;
-    void SetMaxCapacity(int);
+    // 彻底修改完后删除
+    int GetSize() const { return size_; }
+    void SetSize(int size) { size_ = size; }
+    void IncreaseSize(int amount) { size_ += amount; }
+    int GetMaxSize() const { return max_size_; }
+    void SetMaxSize(int max_size) { max_size_ = max_size; }
+
+
+    int GetMaxCapacity() const { return max_kv_capacity_; }
+    void SetMaxCapacity(int capacity_) { max_kv_capacity_ = capacity_; }
 
     // 主要是计算有些内容的时候，用节点自己的秩方便一些，尽管节点的计算都是在 tree 下做的，但是这个秩我希望只 set 一次
-    int GetOrder() const;
-    void SetOrder(int);
+    int GetOrder() const { return real_order_; }
+    void SetOrder(int order_) { real_order_ = order_; }
 
     // int GetMinSize() const;
 
@@ -66,8 +71,8 @@ public:
 
     void SetLSN(lsn_t lsn = INVALID_LSN);
 
-    void SetLayerId(int);
-    int GetLayerId() const;
+    void SetLayerId(int _layer) { layer=_layer; }
+    int GetLayerId() const { return layer; }
 
 private:
     // member variable, attributes that both internal and leaf page share
@@ -86,13 +91,15 @@ private:
      * 核心就是叶子节点的 key 可以全部使用，最后那个成 list 的 V 被放到了 header 的 meta 数据中
      * size 在叶子节点与中间节点的含义是不同的，所以 size 这个量也放到各自的派生类中定义
      */
-    // int size_;
-    // int max_size_;
     int max_kv_capacity_;  // 存储空间上能够容纳的 kv 的最大数量
     int real_order_;  // 真实的b+tree的秩
     page_id_t parent_page_id_;
     page_id_t page_id_;
     int layer;  // b+ tree 节点所处的层号
+
+    // 彻底修改完后删除
+    int size_;
+    int max_size_;
 };
 
 } // namespace cmudb

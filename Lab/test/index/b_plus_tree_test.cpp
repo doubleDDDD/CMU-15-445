@@ -32,9 +32,9 @@ TEST(BPlusTreeTests, InsertTest1)
      */
     BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", bpm, comparator);
 
-#ifdef DEBUG_TREE_SHOW
+// #ifdef DEBUG_TREE_SHOW
     tree.SetOrder(3);  // set B+ tree 的阶数为 3，实际上是key的个数不能超过3
-#endif
+// #endif
 
     GenericKey<8> index_key;  // 数据部分是一个char数组，数组长度8
     RID rid;

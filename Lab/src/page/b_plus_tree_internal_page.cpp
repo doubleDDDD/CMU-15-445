@@ -80,7 +80,7 @@ int BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::ValueIndex(const V
 template <typename KeyType, typename ValueType, typename KeyComparator>
 ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::ValueAt(int index) const
 {
-    assert(0 <= index && index < GetSize());
+    assert(0 <= index && index < GetValueSize());
     return array[index].second;
 }
 
@@ -119,13 +119,13 @@ ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Lookup(
     const KeyType &key, const KeyComparator &comparator) const
 {
     /* 要查找的key小于第一个或大于最后一个，就直接返回了，否则在一个 node 内部依然需要一些查找方法 */
-    assert(GetSize() > 1);
+    assert(GetValueSize() > 1);
     if (comparator(key, array[1].first) < 0){ return array[0].second; }
-    else if (comparator(key, array[GetSize() - 1].first) >= 0)
-    { return array[GetSize() - 1].second; }
+    else if (comparator(key, array[GetValueSize() - 1].first) >= 0)
+    { return array[GetValueSize() - 1].second; }
 
     // 二分查找,节点内部的典型实现方式就是二分查找
-    int low = 1, high = GetSize() - 1, mid;
+    int low = 1, high = GetValueSize() - 1, mid;
     while (low < high && low + 1 != high)
     {
         mid = low + (high - low) / 2;
@@ -144,40 +144,48 @@ ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Lookup(
  * When the insertion cause overflow from leaf page all the way upto the root
  * page, you should create a new root page and populate its elements.
  * NOTE: This method is only called within InsertIntoParent()(b_plus_tree.cpp)
+ *  root->PopulateNewRoot(old_node->GetPageId(), key, new_node->GetPageId());
+ *  root 是一个新 page
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::PopulateNewRoot(
-    const ValueType &old_value, const KeyType &new_key, const ValueType &new_value)
+    const ValueType &old_value, 
+    const KeyType &new_key, 
+    const ValueType &new_value)
 {
     // must be an empty page
-    assert(GetSize() == 1);
+    // old是左边的，new是新分裂的，该类的 this 是新的 root
+    // 在 init 的时候已经 set 过 1 了 for 无效的一个中间节点
+    assert(GetValueSize() == 1);
     array[0].second = old_value;
     array[1] = {new_key, new_value};
-    IncreaseSize(1);
+    IncreaseValueSize(1);
 }
 
 /*
  * Insert new_key & new_value pair right after the pair with its value ==
  * old_value
  * @return:  new size after insertion
+ * 就是一个非常简单的 insert 操作，有限制保证叶子节点与中间节点的秩是与树保持一致的
+ * 叶子节点中的 kv 对，v 表示的是大于等于 K 的那部分
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-int BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    InsertNodeAfter(const ValueType &old_value, const KeyType &new_key,
-                    const ValueType &new_value)
+int BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::InsertNodeAfter(
+    const ValueType &old_value, 
+    const KeyType &new_key, 
+    const ValueType &new_value)
 {
-  for (int i = GetSize(); i > 0; --i)
-  {
-    if (array[i - 1].second == old_value)
-    {
-      // 在old_value节点后面插入一个新节点
-      array[i] = {new_key, new_value};
-      IncreaseSize(1);
-      break;
+    // 从后向前扫
+    for (int i = GetValueSize(); i > 0; --i) {
+        if(array[i-1].second == old_value){
+            array[i] = {new_key, new_value};
+            IncreaseValueSize(1);
+            break;
+        }
+        array[i] = array[i-1];
     }
-    array[i] = array[i - 1];
-  }
-  return GetSize();
+    assert(GetValueSize() <= GetOrder() + 1);  // 这里采用了先 insert 再 split 的策略
+    return GetValueSize();
 }
 
 /*****************************************************************************
@@ -185,44 +193,56 @@ int BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
  *****************************************************************************/
 /*
  * Remove half of key & value pairs from this page to "recipient" page
+ * 中间节点的 平均对半分 函数
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    MoveHalfTo(BPlusTreeInternalPage *recipient,
-               BufferPoolManager *buffer_pool_manager)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
+    BPlusTreeInternalPage *recipient,
+    BufferPoolManager *buffer_pool_manager)
 {
-  auto half = (GetSize() + 1) / 2;
-  recipient->CopyHalfFrom(array + GetSize() - half, half, buffer_pool_manager);
+    // recipient 是扩展出的中间节点，需要把自己匀一半出去的就是当前 node
+    // 依然是新节点多一个，完事后会将新节点的第一个 k push 到父节点中
+    // 怕是不能直接均的，直接均完之后，新节点的kv都是有效的 但是要上推第一个 key 到上一层，所以依然符合中间节点的 kv 布局
+    //      感觉作者做的确实有些麻烦了，写成了我看不懂的样子
+    // ...
+    // 如果是奇数，half 是一个向下取整的数
+    // 我想起来之前自己做的充值返利过程了，(a+1)/2 能保证向上取整
+    // 如果a是奇数，则结果是大的那个，如果a是偶数，对结果是没有影响的
+    auto more_half = (GetValueSize()+1)/2;
+    auto less_half = GetValueSize() - more_half;
+    // 将后半部分 copy 到新 node 中，应该是 copy 多的那部分
+    // recipient->CopyHalfFrom(array + GetSize() - half, half, buffer_pool_manager);
+    recipient->CopyHalfFrom(array + less_half, more_half, buffer_pool_manager);
 
-  // 更新孩子节点的父节点id
-  for (auto index = GetSize() - half; index < GetSize(); ++index)
-  {
-    auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
-    if (page == nullptr)
+    /**
+     * @brief  中间节点完成了分裂，recipient 是一个 new node
+     * copy 了 old node 中的孩子来 new node，所以这些 new node 的孩子节点的父节点发生了变化，修改之
+     * 更新孩子节点的父节点id
+     * 这里依旧在原节点中计算
+     */
+    for (auto index = more_half; index < GetValueSize(); ++index)
     {
-      throw Exception(EXCEPTION_TYPE_INDEX,
-                      "all page are pinned while CopyLastFrom");
-    }
-    auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
-    child->SetParentPageId(recipient->GetPageId());
+        auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
+        if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyLastFrom"); }
+        auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+        child->SetParentPageId(recipient->GetPageId());
 
-    assert(child->GetParentPageId() == recipient->GetPageId());
-    buffer_pool_manager->UnpinPage(child->GetPageId(), true);
-  }
-  IncreaseSize(-1 * half);
+        assert(child->GetParentPageId() == recipient->GetPageId());
+        buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+    }
+
+    IncreaseValueSize(-1 * more_half);
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    CopyHalfFrom(MappingType *items, int size,
-                 BufferPoolManager *buffer_pool_manager)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::CopyHalfFrom(
+    MappingType *items, 
+    int size,
+    BufferPoolManager *buffer_pool_manager)
 {
-  assert(!IsLeafPage() && GetSize() == 1 && size > 0);
-  for (int i = 0; i < size; ++i)
-  {
-    array[i] = *items++;
-  }
-  IncreaseSize(size - 1);
+    assert(!IsLeafPage() && GetValueSize() == 1 && size > 0);
+    for (int i = 0; i < size; ++i) { array[i] = *items++;}
+    IncreaseSize(size - 1);
 }
 
 /*****************************************************************************

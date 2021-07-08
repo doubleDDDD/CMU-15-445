@@ -37,11 +37,11 @@ BPlusTreePage::SetPageType(IndexPageType page_type) {
 /*
  * Helper methods to get/set max size (capacity) of the page
  */
-int BPlusTreePage::GetMaxCapacity() const { return max_kv_capacity_; }
-void BPlusTreePage::SetMaxCapacity(int capacity_) { max_kv_capacity_ = capacity_; }
+// int BPlusTreePage::GetMaxCapacity() const { return max_kv_capacity_; }
+// void BPlusTreePage::SetMaxCapacity(int capacity_) { max_kv_capacity_ = capacity_; }
     
-int BPlusTreePage::GetOrder() const { return real_order_; }
-void BPlusTreePage::SetOrder(int order_) { real_order_= order_; }
+// int BPlusTreePage::GetOrder() const { return real_order_; }
+// void BPlusTreePage::SetOrder(int order_) { real_order_= order_; }
 
 /*
  * Helper method to get min page size
@@ -66,7 +66,7 @@ void BPlusTreePage::SetPageId(page_id_t page_id) { page_id_ = page_id; }
  */
 void BPlusTreePage::SetLSN(lsn_t lsn) { lsn_ = lsn; }
 
-void BPlusTreePage::SetLayerId(int _layer) { layer = _layer; }
-int BPlusTreePage::GetLayerId() const { return layer; }
+// void BPlusTreePage::SetLayerId(int _layer) { layer = _layer; }
+// int BPlusTreePage::GetLayerId() const { return layer; }
 
 } // namespace cmudb

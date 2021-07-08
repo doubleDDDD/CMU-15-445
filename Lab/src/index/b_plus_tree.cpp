@@ -163,6 +163,7 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::StartNewTree(
     // reset, if show debug is not defined, the func is a empty func
     // 规则也保证了 b+tree 的阶数至少是2
     ReSetPageOrder(root);
+    root->SetLayerId(1); // root 节点的层是 1
 
     /**
      * @brief root节点的插入方法，value在本例中是一个指向 数据 page 的指针
@@ -196,22 +197,20 @@ BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
     if (leaf == nullptr) { return false; }
 
     ValueType v;
-    // 如果树中已经有值了，就返回false
+    // 不支持重复 key，意味着一个域中的 属性不能有相同值，所以一般都是针对 primary key 去建立 index
     if (leaf->Lookup(key, v, comparator_)) {
         UnlockUnpinPages(Operation::INSERT, transaction);
         return false;
     }
 
-    /**
-     * @brief 如果已经直接调用了叶子节点的 insert 方法，那么意味着是能够顺利 insert 的，即由调用方在确定是否可以顺利insert
-     * 实际上调用方就是 b+tree 的对象，是具有全局视角的一个对象，由它去 control 所有的节点 
-     * if L has enough space, and done
-     */
-    if (leaf->GetSize() < leaf->GetMaxSize()) { leaf->Insert(key, value, comparator_); }
-    else
-    {
+    // 这个 insert 操作有可能使得叶子结点的key的数量超过 秩-1，即达到 秩
+    // 二话不说先 insert
+    leaf->Insert(key, value, comparator_);
+
+    if (leaf->GetKeySize() >= leaf->GetOrder()) {
+        assert(leaf->GetKeySize()==leaf->GetOrder());  // 只允许大一个之后就需要 split 了
         /**
-         * @brief 如果一个叶子节点的空间不够了，如果插入后就会超过预设的秩
+         * @brief 如果一个叶子节点的空间不够了，大于等于秩之后，意味着需要分直接裂叶子节点
          * 测试学习的秩 =3
          *      叶子节点中 kv 对的数量是 3
          *      所以 1 2 3 都是可以 insert 到
@@ -229,31 +228,40 @@ BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
          * 如果我测试的 b+ tree 的秩为3，即一个节点中的k的数量最大是2，最小是1 
          * 3/2=1，所以一半最小是1
          * 后半部分 copy 到 L2
+         * 
+         * 最终还是实现了先 insert 再 split 的策略，如果无法平均分配，即节点的秩为奇数，那么后半段容纳多的那部分
          */
         auto *leaf2 = Split<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>(leaf);
-        /**
-         * @brief 在分裂一半的基础上+1基本是不可能超出范围的，这个写法不是很好，之后修改掉
-         */
-        if (comparator_(key, leaf2->KeyAt(0)) < 0) { 
-            // 这个key应该插入到L
-            leaf->Insert(key, value, comparator_); 
-        } else { 
-            // key应该被插入到L2中
-            leaf2->Insert(key, value, comparator_); 
-        }
 
-        // 更新前后关系
-        if (comparator_(leaf->KeyAt(0), leaf2->KeyAt(0)) < 0)
-        {
-            leaf2->SetNextPageId(leaf->GetNextPageId());
-            leaf->SetNextPageId(leaf2->GetPageId());
-        }
-        else
-        {
-            leaf2->SetNextPageId(leaf->GetPageId());
-        }
+        // /**
+        //  * @brief 在分裂一半的基础上+1基本是不可能超出范围的，这个写法不是很好，之后修改掉
+        //  */
+        // if (comparator_(key, leaf2->KeyAt(0)) < 0) { 
+        //     // 这个key应该插入到L
+        //     leaf->Insert(key, value, comparator_); 
+        // } else { 
+        //     // key应该被插入到L2中
+        //     leaf2->Insert(key, value, comparator_); 
+        // }
+
+        // std::cout << "left is " << leaf->KeyAt(0) << "right is " << leaf2->KeyAt(0) << std::endl;
+        assert(comparator_(leaf->KeyAt(0), leaf2->KeyAt(0)) < 0);  // 新节点总是后面的那个
+        leaf2->SetNextPageId(leaf->GetNextPageId());
+        leaf->SetNextPageId(leaf2->GetPageId());
+
+        // // 更新前后关系
+        // if (comparator_(leaf->KeyAt(0), leaf2->KeyAt(0)) < 0)
+        // {
+        //     leaf2->SetNextPageId(leaf->GetNextPageId());
+        //     leaf->SetNextPageId(leaf2->GetPageId());
+        // }
+        // else
+        // {
+        //     leaf2->SetNextPageId(leaf->GetPageId());
+        // }
 
         // 将分裂的节点插入到父节点, 这里是有可能导致父节点分裂的，如果父节点分裂，则继续向上传递
+        // 大于等于在右边，所以应该将新分裂及节点最左侧的 key 向上推
         InsertIntoParent(leaf, leaf2->KeyAt(0), leaf2, transaction);
     }
 
@@ -269,6 +277,9 @@ BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
  * User needs to first ask for new page from buffer pool manager(NOTICE: throw
  * an "out of memory" exception if returned value is nullptr), then move half
  * of key & value pairs from input page to newly created page
+ * b+ tree 的方法，分裂对两种节点的操作的框架是一致的，相当于这里包了一层，但是 copy 的函数是各自的
+ *      对于叶子节点，新的 kv 已经 insert 了，即节点中 key 的数量已经达到了秩
+ *      对于中间节点，新的 kv 也已经 insert 了。即节点中的 v 的数量已经超过了秩，k 的数量也达到了 秩
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 template <typename N>
@@ -285,7 +296,7 @@ N *BPlusTree<KeyType, ValueType, KeyComparator>::Split(N *node)
     // reset order
     ReSetPageOrder(new_node);
 
-    /* 被分裂节点的movehalfto方法 */
+    /* 被分裂节点的 move half to 方法 */
     node->MoveHalfTo(new_node, buffer_pool_manager_);
     return new_node;
 }
@@ -300,130 +311,168 @@ N *BPlusTree<KeyType, ValueType, KeyComparator>::Split(N *node)
  * recursively if necessary.
  *  可能导致递归的分裂过程
  * 一个调用过程的实例 InsertIntoParent(leaf, leaf2->KeyAt(0), leaf2, transaction);
+ *      大于等于在右边
+ *      父节点是一定没有即将被推上去的 key 的，即 leaf2->KeyAt(0)
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoParent(
-    BPlusTreePage *old_node, const KeyType &key,
-    BPlusTreePage *new_node, Transaction *transaction)
+    BPlusTreePage *old_node, 
+    const KeyType &key,
+    BPlusTreePage *new_node, 
+    Transaction *transaction)
 {
-    if (old_node->IsRootPage())
-    {
-        // 这相当于把 root 节点分裂了，显然是需要增加树的高度的，copy一个L或L2中的key到新的root节点
+    if (old_node->IsRootPage()) {
+        // root节点的分裂，copy L2 中的第一个key到新的root节点
         auto *page = buffer_pool_manager_->NewPage(root_page_id_);
-        if (page == nullptr) {
-            throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while InsertIntoParent");
-        }
+        if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while InsertIntoParent"); }
 
         assert(page->GetPinCount() == 1);
         auto root = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
-        root->Init(root_page_id_);
-        // key是L2的第一个key, 实际上就是为新的root节点add第一个kv对,kv也仅仅是子节点中kv的copy
-        root->PopulateNewRoot(old_node->GetPageId(), key, new_node->GetPageId());
 
+        root->Init(root_page_id_);
+        ReSetPageOrder(root);  // reset b+ tree 的秩，树的 秩 会set到 new node 上
+        root->SetLayerId(1);  // 这是新的 root 节点
+
+        // 这里就相当于将 L2 的第一个 key 推到上一层，但是上一层是root，新推的key也是 root 的第一个 key
+        root->PopulateNewRoot(old_node->GetPageId(), key, new_node->GetPageId());
         old_node->SetParentPageId(root_page_id_);
         new_node->SetParentPageId(root_page_id_);
+        
+        // 这两个节点要向下走一层，即层数+1
+        old_node->SetLayerId(old_node->GetLayerId()+1);
+        new_node->SetLayerId(new_node->GetLayerId()+1);
 
         // 这时需要更新根节点页面id
         UpdateRootPageId(false);
         // 这一次分裂搞出两个new page来，极具的扩展了B+tree
         buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);
         buffer_pool_manager_->UnpinPage(root->GetPageId(), true);
-    }
-    else {
-        // 新增元素的父节点是非root节点的中间节点，有可能递归的向上传递，并且可能最终导致b+tree层数+1
+    } else {
+        // 新增元素的父节点是 非root 节点的中间节点，有可能递归的向上传递，并且可能最终导致 b+tree 整体层数+1
         auto *page = buffer_pool_manager_->FetchPage(old_node->GetParentPageId());
-        if (page == nullptr) {
-            throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while InsertIntoParent");
-        }
+        if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while InsertIntoParent"); }
 
-        // internal是 L与L2 的父节点
-        auto internal =
-            reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
-    
-        // 如果父节点还有空间，父节点直接就cover住了，分裂无需继续向上传递
-        if (internal->GetSize() < internal->GetMaxSize()) {
-            // 这个insert函数会导致 kv 数组整体后移
-            internal->InsertNodeAfter(old_node->GetPageId(), key, new_node->GetPageId());
-            new_node->SetParentPageId(internal->GetPageId());
-            buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);
-        }
-        else {
-            // internal 作为 L与L2 的父节点，现在已经无法再容纳多一个kv了，所以 internal 也需要分裂
-            // 最复杂的情形，父节点也需要分裂，并且需要向上传递一次分裂，明显是一个递归的过程
-            page_id_t page_id;
-            // 这个page与internal是同一级的，应该要 copy internal 的 kv 到该new page。这个page最后直接干掉了，没有保留，这里依然只是多了一个分裂的page
-            auto *page = buffer_pool_manager_->NewPage(page_id);
-            if (page == nullptr) {
-                throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while InsertIntoParent");
-            }
+        // internal是 L与L2 原本的父节点
+        auto internal = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
 
-            assert(page->GetPinCount() == 1);
-            
-            /* copy is a new internal node, only a 中间过程的节点 */
-            auto *copy =
-                reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
+        // 父节点保存了 v 的数量，这个上限就是 秩-1 的大小，所以能够满足先 insert 再 split 的需求
+        // 这里准备采用自己的方式，即 二话不说 先insert，再判断是否要 split
+        // InsertNodeAfter 会导致中间节点的kv都整体后移一下
+        internal->InsertNodeAfter(old_node->GetPageId(), key, new_node->GetPageId());
 
-            copy->Init(page_id);
-            copy->SetSize(internal->GetSize());
-            // 现在 copy 的 kv 对是空的
+        // 后续操作尽量的与 new node/old node 隔离开了，除非要调整该层节点的父节点
+        if(internal->GetValueSize() > internal->GetOrder()) 
+        {
+            // value的数量已经比秩大了，但是一定是只会大1
+            // 经过 insert，只有 internal 是不满足规则的，但是也仅仅只是规则不满足而已，指针的指向，即kv的个数是完全ok的
+            //  虽然不合规，但是 tree 本身是完整的
+            assert(internal->GetValueSize() == internal->GetOrder()+1);
+            // 由于L分裂为L与L2，并且将L2的第一个key上举导致L与L1的父节点也需要 split 了
+            /**
+             * @brief 
+             * 1. split
+             *      将当前中间节点的 kv 对半分
+             *      创建一个 new node，old node 中的一半 kv 移动到 new old 中
+             *      两个节点的大小也全部被 adjust 到实际大小
+             *      被移动 node 的子节点的父节点也都调整完事了
+             */
+            auto *internal2 = Split<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>(internal);
 
-            for (int i = 1, j = 0; i <= internal->GetSize(); ++i, ++j)
-            {
-                /**
-                 * @brief old node 指的是 internal 的左子节点
-                 * 这里是在遍历 internal，就是为了将最新的 key 插入
-                 */
-                if (internal->ValueAt(i - 1) == old_node->GetPageId())
-                {
-                    // 在 internal 中之前应该是有一个指针是指向 old_node 的（即，有一个kv的v是 old node 的 pageid），new node 产生之后，现在还没有父节点
-                    // 所以这个条件只会被触发一次，执行完毕之后在 copy 中会存在一个 kv pair
-                    copy->SetKeyAt(j, key);
-                    copy->SetValueAt(j, new_node->GetPageId());
-                    ++j;
-                }
-                if (i < internal->GetSize())
-                {
-                    copy->SetKeyAt(j, internal->KeyAt(i));
-                    copy->SetValueAt(j, internal->ValueAt(i));
-                }
-            }
+            // 首先set next page id
+            // internal2->SetNextPageId(internal->GetNextPageId());
+            // internal->SetNextPageId(internal2->GetPageId());
+            // 真是自己傻了，叶子节点怎么可能有这个函数，真是没有过脑子直接 copy 过来了，但是需要set parent id
 
-            // i=0 的
+            // internal2 的第一个 kv 对的 k 需要继续向上 insert，internal2->KeyAt(0) 是无效的          
+            InsertIntoParent(internal, internal2->KeyAt(0), internal2, transaction);
+        } else { new_node->SetParentPageId(internal->GetPageId()); }  // 父节点是cover住了
 
-            assert(copy->GetSize() == copy->GetMaxSize());
-            // copy 分裂会导致一个新page的产生
-            auto internal2 = Split<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>(copy);
-
-            internal->SetSize(copy->GetSize() + 1);
-            for (int i = 0; i < copy->GetSize(); ++i) {
-                internal->SetKeyAt(i + 1, copy->KeyAt(i));
-                internal->SetValueAt(i + 1, copy->ValueAt(i));
-            }
-
-            if (comparator_(key, internal2->KeyAt(0)) < 0)
-            {
-                new_node->SetParentPageId(internal->GetPageId());
-            }
-            else if (comparator_(key, internal2->KeyAt(0)) == 0)
-            {
-                new_node->SetParentPageId(internal2->GetPageId());
-            }
-            else
-            {
-                new_node->SetParentPageId(internal2->GetPageId());
-                old_node->SetParentPageId(internal2->GetPageId());
-            }
-
-            buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);
-
-            buffer_pool_manager_->UnpinPage(copy->GetPageId(), false);
-            buffer_pool_manager_->DeletePage(copy->GetPageId());
-
-            // 继续递归了这里
-            InsertIntoParent(internal, internal2->KeyAt(0), internal2);
-        }
-
+        buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);
         buffer_pool_manager_->UnpinPage(internal->GetPageId(), true);
+
+        // // 分割线
+        // if (internal->GetSize() < internal->GetMaxSize()) 
+        // {
+        //     // 这个insert函数会导致 kv 数组整体后移
+        //     internal->InsertNodeAfter(old_node->GetPageId(), key, new_node->GetPageId());
+        //     new_node->SetParentPageId(internal->GetPageId());
+        //     buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);
+        // }
+        // else {
+        //     // internal 作为 L与L2 的父节点，现在已经无法再容纳多一个kv了，所以 internal 也需要分裂
+        //     // 最复杂的情形，父节点也需要分裂，并且需要向上传递一次分裂，明显是一个递归的过程
+        //     page_id_t page_id;
+        //     // 这个page与internal是同一级的，应该要 copy internal 的 kv 到该new page。这个page最后直接干掉了，没有保留，这里依然只是多了一个分裂的page
+        //     auto *page = buffer_pool_manager_->NewPage(page_id);
+        //     if (page == nullptr) {
+        //         throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while InsertIntoParent");
+        //     }
+
+        //     assert(page->GetPinCount() == 1);
+            
+        //     /* copy is a new internal node, only a 中间过程的节点 */
+        //     auto *copy =
+        //         reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
+
+        //     copy->Init(page_id);
+        //     copy->SetSize(internal->GetSize());
+        //     // 现在 copy 的 kv 对是空的
+
+        //     for (int i = 1, j = 0; i <= internal->GetSize(); ++i, ++j)
+        //     {
+        //         /**
+        //          * @brief old node 指的是 internal 的左子节点
+        //          * 这里是在遍历 internal，就是为了将最新的 key 插入
+        //          */
+        //         if (internal->ValueAt(i - 1) == old_node->GetPageId())
+        //         {
+        //             // 在 internal 中之前应该是有一个指针是指向 old_node 的（即，有一个kv的v是 old node 的 pageid），new node 产生之后，现在还没有父节点
+        //             // 所以这个条件只会被触发一次，执行完毕之后在 copy 中会存在一个 kv pair
+        //             copy->SetKeyAt(j, key);
+        //             copy->SetValueAt(j, new_node->GetPageId());
+        //             ++j;
+        //         }
+        //         if (i < internal->GetSize())
+        //         {
+        //             copy->SetKeyAt(j, internal->KeyAt(i));
+        //             copy->SetValueAt(j, internal->ValueAt(i));
+        //         }
+        //     }
+
+        //     // i=0 的
+
+        //     assert(copy->GetSize() == copy->GetMaxSize());
+        //     // copy 分裂会导致一个新page的产生
+        //     auto internal2 = Split<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>(copy);
+
+        //     internal->SetSize(copy->GetSize() + 1);
+        //     for (int i = 0; i < copy->GetSize(); ++i) {
+        //         internal->SetKeyAt(i + 1, copy->KeyAt(i));
+        //         internal->SetValueAt(i + 1, copy->ValueAt(i));
+        //     }
+
+        //     if (comparator_(key, internal2->KeyAt(0)) < 0)
+        //     {
+        //         new_node->SetParentPageId(internal->GetPageId());
+        //     }
+        //     else if (comparator_(key, internal2->KeyAt(0)) == 0)
+        //     {
+        //         new_node->SetParentPageId(internal2->GetPageId());
+        //     }
+        //     else
+        //     {
+        //         new_node->SetParentPageId(internal2->GetPageId());
+        //         old_node->SetParentPageId(internal2->GetPageId());
+        //     }
+
+        //     buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);
+
+        //     buffer_pool_manager_->UnpinPage(copy->GetPageId(), false);
+        //     buffer_pool_manager_->DeletePage(copy->GetPageId());
+
+        //     // 继续递归了这里
+        //     InsertIntoParent(internal, internal2->KeyAt(0), internal2);
+        // }
     }
 }
 
@@ -446,19 +495,19 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::
     return;
   }
 
-  auto *leaf = FindLeafPage(key, false, Operation::DELETE, transaction);
-  if (leaf != nullptr)
-  {
-    int size_before_deletion = leaf->GetSize();
-    if (leaf->RemoveAndDeleteRecord(key, comparator_) != size_before_deletion)
-    {
-      if (CoalesceOrRedistribute(leaf, transaction))
-      {
-        transaction->AddIntoDeletedPageSet(leaf->GetPageId());
-      }
-    }
-    UnlockUnpinPages(Operation::DELETE, transaction);
-  }
+//   auto *leaf = FindLeafPage(key, false, Operation::DELETE, transaction);
+//   if (leaf != nullptr)
+//   {
+//     int size_before_deletion = leaf->GetSize();
+//     if (leaf->RemoveAndDeleteRecord(key, comparator_) != size_before_deletion)
+//     {
+//       if (CoalesceOrRedistribute(leaf, transaction))
+//       {
+//         transaction->AddIntoDeletedPageSet(leaf->GetPageId());
+//       }
+//     }
+//     UnlockUnpinPages(Operation::DELETE, transaction);
+//   }
 }
 
 /*
@@ -641,39 +690,39 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::
     AdjustRoot(BPlusTreePage *old_root_node)
 {
   // 如果删除了最后一个节点
-  if (old_root_node->IsLeafPage())
-  {
-    if (old_root_node->GetSize() == 0)
-    {
-      root_page_id_ = INVALID_PAGE_ID;
-      UpdateRootPageId(false);
-      return true;
-    }
-    return false;
-  }
+//   if (old_root_node->IsLeafPage())
+//   {
+//     if (old_root_node->GetSize() == 0)
+//     {
+//       root_page_id_ = INVALID_PAGE_ID;
+//       UpdateRootPageId(false);
+//       return true;
+//     }
+//     return false;
+//   }
 
   // 删除了还有最后一个节点
-  if (old_root_node->GetSize() == 1)
-  {
-    auto root =
-        reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t,
-                                               KeyComparator> *>(old_root_node);
-    root_page_id_ = root->ValueAt(0);
-    UpdateRootPageId(false);
+//   if (old_root_node->GetSize() == 1)
+//   {
+//     auto root =
+//         reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t,
+//                                                KeyComparator> *>(old_root_node);
+//     root_page_id_ = root->ValueAt(0);
+//     UpdateRootPageId(false);
 
-    auto *page = buffer_pool_manager_->FetchPage(root_page_id_);
-    if (page == nullptr)
-    {
-      throw Exception(EXCEPTION_TYPE_INDEX,
-                      "all page are pinned while AdjustRoot");
-    }
-    auto new_root =
-        reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t,
-                                               KeyComparator> *>(page->GetData());
-    new_root->SetParentPageId(INVALID_PAGE_ID);
-    buffer_pool_manager_->UnpinPage(root_page_id_, true);
-    return true;
-  }
+//     auto *page = buffer_pool_manager_->FetchPage(root_page_id_);
+//     if (page == nullptr)
+//     {
+//       throw Exception(EXCEPTION_TYPE_INDEX,
+//                       "all page are pinned while AdjustRoot");
+//     }
+//     auto new_root =
+//         reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t,
+//                                                KeyComparator> *>(page->GetData());
+//     new_root->SetParentPageId(INVALID_PAGE_ID);
+//     buffer_pool_manager_->UnpinPage(root_page_id_, true);
+//     return true;
+//   }
   return false;
 }
 
@@ -767,15 +816,15 @@ template <typename N>
 bool BPlusTree<KeyType, ValueType, KeyComparator>::
     isSafe(N *node, Operation op)
 {
-  if (op == Operation::INSERT)
-  {
-    return node->GetSize() < node->GetMaxSize();
-  }
-  else if (op == Operation::DELETE)
-  {
-    // >=: keep same with `coalesce logic`
-    return node->GetSize() > node->GetMinSize() + 1;
-  }
+//   if (op == Operation::INSERT)
+//   {
+//     return node->GetSize() < node->GetMaxSize();
+//   }
+//   else if (op == Operation::DELETE)
+//   {
+//     // >=: keep same with `coalesce logic`
+//     return node->GetSize() > node->GetMinSize() + 1;
+//   }
   return true;
 }
 // **************** lab3 ***********************
@@ -792,8 +841,7 @@ BPlusTree<KeyType, ValueType, KeyComparator>::FindLeafPage(
     const KeyType &key, bool leftMost, Operation op, Transaction *transaction)
 {
     // 如果操作不是只读的，就要锁根节点
-    if (op != Operation::READONLY)
-    {
+    if (op != Operation::READONLY) {
         lockRoot();
         root_is_locked = true;
     }
@@ -802,8 +850,7 @@ BPlusTree<KeyType, ValueType, KeyComparator>::FindLeafPage(
 
     // 先把root节点的page拿到手
     auto *parent = buffer_pool_manager_->FetchPage(root_page_id_);
-    if (parent == nullptr)
-    {
+    if (parent == nullptr) {
         throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while FindLeafPage");
     }
 
@@ -834,18 +881,13 @@ BPlusTree<KeyType, ValueType, KeyComparator>::FindLeafPage(
 
         // 直接拿着key到内部节点中去找，通常就是二分查找
         auto *child = buffer_pool_manager_->FetchPage(child_page_id);
-        if (child == nullptr) {
-            throw Exception(EXCEPTION_TYPE_INDEX,
-                            "all page are pinned while FindLeafPage");
-        }
+        if (child == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while FindLeafPage"); }
 
-        if (op == Operation::READONLY)
-        {
+        if (op == Operation::READONLY) {
             child->RLatch();
             UnlockUnpinPages(op, transaction);
         }
-        else
-        {
+        else {
             child->WLatch();
         }
 
@@ -853,16 +895,9 @@ BPlusTree<KeyType, ValueType, KeyComparator>::FindLeafPage(
         assert(node->GetParentPageId() == parent_page_id);
 
         // 如果是安全的，就释放父节点那的锁
-        if (op != Operation::READONLY && isSafe(node, op))
-        {
-            UnlockUnpinPages(op, transaction);
-        }
-        if (transaction != nullptr)
-        {
-            transaction->AddIntoPageSet(child);
-        }
-        else
-        {
+        if (op != Operation::READONLY && isSafe(node, op)) { UnlockUnpinPages(op, transaction); }
+        if (transaction != nullptr) { transaction->AddIntoPageSet(child); }
+        else {
             parent->RUnlatch();
             buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
             parent = child;
@@ -1011,21 +1046,21 @@ BPlusTree<KeyType, ValueType, KeyComparator>::SetOrder(int _order)
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void 
-BPlusTree<KeyType, ValueType, KeyComparator>::ReSetPageOrder(
-    BPlusTreePage *node)
+void BPlusTree<KeyType, ValueType, KeyComparator>::ReSetPageOrder(BPlusTreePage *node)
 {
     /**
-     * @brief 指定秩，B+ tree 的秩的最小值是2，最大不能超过容量，叶子节点的秩是可以比 kv 总量大一个
-     * 但是这里就以小的那个为准
+     * @brief 指定秩，B+ tree 的秩的最小值是2，最大不能超过容量
+     * 如果秩与最大容量的大小是一致的，则无法做到先 insert 再 split，所以这里留一点余量
+     * 就保留了一个空间的余量
+     * 这个容量也不一样啊，之前作者的工作在这里看起来是有些欠缺的
      */
-#ifdef DEBUG_TREE_SHOW
-    if(order > node->GetMaxCapacity() || order <= 1) {
+// #ifdef DEBUG_TREE_SHOW
+    if(order > node->GetMaxCapacity() - 1 || order <= 1) {
         // B+ tree 最少二阶，阶指的是 v 的数量，反正就是 kv 对的数量，k 需要空一个出来
         throw Exception(EXCEPTION_TYPE_OUT_OF_RANGE, "order of b+ tree is too big!");
     }
-    node->SetOrder();
-#endif
+    node->SetOrder(order);
+// #endif
     return;
 }
 
