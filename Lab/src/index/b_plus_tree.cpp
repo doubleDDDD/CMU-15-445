@@ -764,7 +764,7 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::
 template <typename KeyType, typename ValueType, typename KeyComparator>
 IndexIterator<KeyType, ValueType, KeyComparator> BPlusTree<KeyType, ValueType, KeyComparator>::Begin()
 {
-    std::printf("yeap, you are here\n");
+    // std::printf("yeap, you are here\n");
     // 得要找到最小的叶子节点
     if(IsEmpty()) {
         // 我其实不是很清楚这个边界条件的处理
