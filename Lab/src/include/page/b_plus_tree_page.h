@@ -45,6 +45,9 @@ public:
     bool IsRootPage() const;  /* 是否 root 节点 */
     void SetPageType(IndexPageType page_type);  /* helper */
 
+    /* 有几个函数写成虚函数，可能会造成一些冗余，先写起来再说，叶子节点可能要补一些实现，但是表示的是 未实现 */
+    // virtual KeyType KeyAt(int index) const;
+    // virtual int KeyIndex(const KeyType &key, const KeyComparator &comparator) const;
 
     // 彻底修改完后删除
     int GetSize() const { return size_; }
@@ -52,7 +55,6 @@ public:
     void IncreaseSize(int amount) { size_ += amount; }
     int GetMaxSize() const { return max_size_; }
     void SetMaxSize(int max_size) { max_size_ = max_size; }
-
 
     int GetMaxCapacity() const { return max_kv_capacity_; }
     void SetMaxCapacity(int capacity_) { max_kv_capacity_ = capacity_; }

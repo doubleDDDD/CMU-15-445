@@ -758,14 +758,35 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::
  * Input parameter is void, find the leftmost leaf page first, then construct
  * index iterator
  * @return : index iterator
+ * begin 指向的是第一个对象
+ * 由于测试代码中没有测试到 tree.Begin() 的情况，所以作者在这里偷懒了，实现的其实不太对
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-IndexIterator<KeyType, ValueType, KeyComparator> BPlusTree<KeyType, ValueType, KeyComparator>::
-    Begin()
+IndexIterator<KeyType, ValueType, KeyComparator> BPlusTree<KeyType, ValueType, KeyComparator>::Begin()
 {
-  KeyType key{};
-  return IndexIterator<KeyType, ValueType, KeyComparator>(
-      FindLeafPage(key, true), 0, buffer_pool_manager_);
+    std::printf("yeap, you are here\n");
+    // 得要找到最小的叶子节点
+    if(IsEmpty()) {
+        // 我其实不是很清楚这个边界条件的处理
+        return IndexIterator<KeyType, ValueType, KeyComparator>(nullptr, 0, buffer_pool_manager_);
+    }
+
+    auto node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(root_page_id_));
+    // 将某些函数修改成为了虚函数，有个模板类，类模板的相互派生关系，这个东西我还弄不清楚
+    while (!node->IsLeafPage()) {
+        // 不是叶子节点一定是中间节点
+        auto internode = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(node);
+        page_id_t page_id = internode->ValueAt(0);
+        node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(page_id));
+    }
+
+    auto leafnode = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(node);
+    KeyType key = leafnode->KeyAt(0);
+    return IndexIterator<KeyType, ValueType, KeyComparator>(FindLeafPage(key, false), 0, buffer_pool_manager_);
+
+    // 分割线，作者写的
+    // KeyType key {};
+    // return IndexIterator<KeyType, ValueType, KeyComparator>(FindLeafPage(key, true), 0, buffer_pool_manager_);
 }
 
 /*
@@ -774,17 +795,13 @@ IndexIterator<KeyType, ValueType, KeyComparator> BPlusTree<KeyType, ValueType, K
  * @return : index iterator
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-IndexIterator<KeyType, ValueType, KeyComparator> BPlusTree<KeyType, ValueType, KeyComparator>::
-    Begin(const KeyType &key)
+IndexIterator<KeyType, ValueType, KeyComparator> BPlusTree<KeyType, ValueType, KeyComparator>::Begin(
+    const KeyType &key)
 {
-  auto *leaf = FindLeafPage(key, false);
-  int index = 0;
-  if (leaf != nullptr)
-  {
-    index = leaf->KeyIndex(key, comparator_);
-  }
-  return IndexIterator<KeyType, ValueType, KeyComparator>(
-      leaf, index, buffer_pool_manager_);
+    auto *leaf = FindLeafPage(key, false);
+    int index = 0;
+    if (leaf != nullptr) { index = leaf->KeyIndex(key, comparator_); }
+    return IndexIterator<KeyType, ValueType, KeyComparator>(leaf, index, buffer_pool_manager_);
 }
 
 /*****************************************************************************

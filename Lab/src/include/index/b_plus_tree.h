@@ -48,33 +48,28 @@ public:
     bool IsEmpty() const;
 
     // Insert a key-value pair into this B+ tree.
-    bool Insert(const KeyType &key, const ValueType &value, 
-                    Transaction *transaction = nullptr);
+    bool Insert(const KeyType &key, const ValueType &value,  Transaction *transaction = nullptr);
 
     // Remove a key and its value from this B+ tree.
     void Remove(const KeyType &key, Transaction *transaction = nullptr);
 
     // return the value associated with a given key
-    bool GetValue(const KeyType &key, std::vector<ValueType> &result,
-                    Transaction *transaction = nullptr);
+    bool GetValue(const KeyType &key, std::vector<ValueType> &result, Transaction *transaction = nullptr);
 
-    // index iterator
+    // index iterator, 迭代器就是指针，自增自减可以在容器中遍历
     IndexIterator<KeyType, ValueType, KeyComparator> Begin();
+    // 指定了起点，这里是重载，通过参数类型的不同
     IndexIterator<KeyType, ValueType, KeyComparator> Begin(const KeyType &key);
 
     // read data from file and insert one by one
-    void InsertFromFile(const std::string &file_name,
-                        Transaction *transaction = nullptr);
+    void InsertFromFile(const std::string &file_name, Transaction *transaction = nullptr);
 
     // read data from file and remove one by one
-    void RemoveFromFile(const std::string &file_name,
-                        Transaction *transaction = nullptr);
+    void RemoveFromFile(const std::string &file_name, Transaction *transaction = nullptr);
 
     // expose for test purpose
     BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *
-    FindLeafPage(const KeyType &key, bool leftMost = false,
-                Operation op = Operation::READONLY,
-                Transaction *transaction = nullptr);
+    FindLeafPage(const KeyType &key, bool leftMost = false, Operation op = Operation::READONLY, Transaction *transaction = nullptr);
 
     // set为用户指定的阶
     void SetOrder(int _order);
@@ -101,12 +96,9 @@ private:
 
     void StartNewTree(const KeyType &key, const ValueType &value);
 
-    bool InsertIntoLeaf(const KeyType &key, const ValueType &value,
-                        Transaction *transaction = nullptr);
+    bool InsertIntoLeaf(const KeyType &key, const ValueType &value, Transaction *transaction = nullptr);
 
-    void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key,
-                            BPlusTreePage *new_node,
-                            Transaction *transaction = nullptr);
+    void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node, Transaction *transaction = nullptr);
 
     template <typename N> 
     N *Split(N *node);
@@ -121,9 +113,7 @@ private:
                     int index, Transaction *transaction = nullptr);
     */
     template <typename N>
-    void Coalesce(N *neighbor_node, N *node,
-                    BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent,
-                    int index, Transaction *transaction = nullptr);
+    void Coalesce(N *neighbor_node, N *node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent, int index, Transaction *transaction = nullptr);
 
     template <typename N> 
     void Redistribute(N *neighbor_node, N *node, int index);
@@ -148,6 +138,7 @@ private:
     page_id_t root_page_id_;
     BufferPoolManager *buffer_pool_manager_;
     KeyComparator comparator_;
+
     /**
      * @brief 实际上 B+tree 在每一个节点中能够容纳的k的个数，b+tree的阶一般是节点容量的 1/2 或 2/3，这个秩的定义是有的。在节点中，每一个节点的 header 部分有存
      * 有点奇怪，秩应该是 b+ tree 的性质，而不是节点的性质哦

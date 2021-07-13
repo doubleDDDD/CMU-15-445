@@ -143,9 +143,7 @@ BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty)
 	std::lock_guard<std::mutex> lock(mutex_);
 
 	Page *res = nullptr;
-	if (!page_table_->Find(page_id, res)) {
-		return false;
-	}
+	if (!page_table_->Find(page_id, res)) { return false; }
 	else {
 		if (res->pin_count_ > 0) {
 			if (--res->pin_count_ == 0) { replacer_->Insert(res); }

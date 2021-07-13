@@ -58,8 +58,6 @@ TEST(BPlusTreeTests, InsertTest1)
 
     tree.ToString(true);
 
-    return;
-
     std::vector<RID> rids;
     for (auto key : keys) {
         rids.clear();
@@ -74,7 +72,20 @@ TEST(BPlusTreeTests, InsertTest1)
     int64_t start_key = 1;
     int64_t current_key = start_key;
     index_key.SetFromInteger(start_key);
+
     for (auto iterator = tree.Begin(index_key); iterator.isEnd() == false; ++iterator) 
+    {
+        auto location = (*iterator).second;
+        EXPECT_EQ(location.GetPageId(), 0);
+        EXPECT_EQ(location.GetSlotNum(), current_key);
+        current_key = current_key + 1;
+    }
+
+    start_key = 1;
+    current_key = start_key;
+    index_key.SetFromInteger(start_key);
+
+    for (auto iterator = tree.Begin(); iterator.isEnd() == false; ++iterator) 
     {
         auto location = (*iterator).second;
         EXPECT_EQ(location.GetPageId(), 0);

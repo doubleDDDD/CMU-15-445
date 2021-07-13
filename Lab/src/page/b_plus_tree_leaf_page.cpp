@@ -98,13 +98,14 @@ KeyType BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::KeyAt(int index) c
 /*
  * Helper method to find and return the key & value pair associated with input
  * "index"(a.k.a array offset)
- * 给定 index，返回 value,在本例中就是指向 数据库文件page 的指针
+ * 给定 index，返回 value, 在本例中就是指向 数据库文件 page 的指针
+ * 迭代器遍历的过程中可能会使用到
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 const MappingType &BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::GetItem(int index)
 {
     // replace with your own code
-    assert(0 <= index && index < GetSize());
+    assert(0 <= index && index < GetKeySize());
     return array[index];
 }
 
@@ -228,12 +229,11 @@ bool BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Lookup(
     const KeyType &key, ValueType &value,
     const KeyComparator &comparator) const
 {
-    if (GetSize() == 0 || comparator(key, KeyAt(0)) < 0 || comparator(key, KeyAt(GetSize() - 1)) > 0)
-    {
-        return false;
+    if (GetKeySize() == 0 || comparator(key, KeyAt(0)) < 0 || comparator(key, KeyAt(GetKeySize() - 1)) > 0) { 
+        return false; 
     }
 
-    int low = 0, high = GetSize() - 1, mid;
+    int low = 0, high = GetKeySize() - 1, mid;
     while (low <= high)
     {
         mid = low + (high - low) / 2;
