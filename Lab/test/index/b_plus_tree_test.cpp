@@ -52,6 +52,8 @@ TEST(BPlusTreeTests, InsertTest1)
         rid.Set((int32_t) (key >> 32), value);  // 这里set的是pageid与slotnum。pageid均为0
         index_key.SetFromInteger(key); // 每次insert一个字符数组，8字节，只有第一个slot有值，就是1,2那样的递增关系
         tree.Insert(index_key, rid, transaction);
+        // tree.ToString(true);
+        // std::printf("tree finish\n");
     }
 
     tree.ToString(true);

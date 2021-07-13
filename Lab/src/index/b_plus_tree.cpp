@@ -114,13 +114,16 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::Insert(
         std::lock_guard<std::mutex> lock(mutex_);
         // 如果树为空就新建一棵树
         if (IsEmpty()) {
+            // 秩=3, insert 1,2,3,4,5 的例子，insert 1 走这里
             StartNewTree(key, value); // 一定是 insert 到 page 节点中的
             return true;
         }
     }
+
     /**
      * @brief 离开上面的{}范围之后lock就会释放
-     * 插入操作一定是在叶子节点插入的，
+     * 插入操作一定是在叶子节点插入的
+     * 秩=3, insert 1,2,3,4,5 的例子，insert 2,3,4,5 都会走到这里
      */
     return InsertIntoLeaf(key, value, transaction);
 }
@@ -206,7 +209,17 @@ BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
     // 这个 insert 操作有可能使得叶子结点的key的数量超过 秩-1，即达到 秩
     // 二话不说先 insert
     leaf->Insert(key, value, comparator_);
-
+    
+    /**
+     * @brief 秩=3, insert 1,2,3,4,5 的例子
+     * 2 直接 insert
+     * 3 首先直接 insert，在触发 leaf 的分裂，2上推，直接形成一个新的 root 节点
+     * 4 直接 insert 到 2,3 所在的 node, 然后分裂为 2;3,4, 3继续上推去找2，root 节点不需要分裂
+     * 到此为止还是正常的
+     * 5 insert，直接 insert 3,4 所在的 node，然后 leaf node 分裂为 3;4,5, 其中4要上推到2,3所在的node中
+     *      再触发 root 节点的分裂，将形成新的 root 节点
+     *      目前就是 5 的 insert 有问题
+     */
     if (leaf->GetKeySize() >= leaf->GetOrder()) {
         assert(leaf->GetKeySize()==leaf->GetOrder());  // 只允许大一个之后就需要 split 了
         /**
@@ -246,6 +259,7 @@ BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
 
         // std::cout << "left is " << leaf->KeyAt(0) << "right is " << leaf2->KeyAt(0) << std::endl;
         assert(comparator_(leaf->KeyAt(0), leaf2->KeyAt(0)) < 0);  // 新节点总是后面的那个
+        // 叶子结点生成之后，立刻成 list
         leaf2->SetNextPageId(leaf->GetNextPageId());
         leaf->SetNextPageId(leaf2->GetPageId());
 
@@ -318,9 +332,13 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoParent(
     BPlusTreePage *old_node, 
     const KeyType &key,
-    BPlusTreePage *new_node, 
+    BPlusTreePage *new_node,
     Transaction *transaction)
 {
+    /**
+     * @brief new_node 的父子关系还没有 build
+     * new node 如果是叶子节点的话，则已经成 list 了
+     */
     if (old_node->IsRootPage()) {
         // root节点的分裂，copy L2 中的第一个key到新的root节点
         auto *page = buffer_pool_manager_->NewPage(root_page_id_);
@@ -363,7 +381,12 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoParent(
         // 后续操作尽量的与 new node/old node 隔离开了，除非要调整该层节点的父节点
         if(internal->GetValueSize() > internal->GetOrder()) 
         {
-            // value的数量已经比秩大了，但是一定是只会大1
+            // 在第一次测试中，这个地方有问题，check again
+            // 就是在 5 insert 完成之后，该 node 分裂为 3与45，4 要上推，4上推到 2,3,4
+            // 2,3,4 需要继续分裂，就会 run here
+            // 这个时候 new_node 依然是没有 set 父节点的
+
+            // value 的数量已经比秩大了，但是一定是只会大1
             // 经过 insert，只有 internal 是不满足规则的，但是也仅仅只是规则不满足而已，指针的指向，即kv的个数是完全ok的
             //  虽然不合规，但是 tree 本身是完整的
             assert(internal->GetValueSize() == internal->GetOrder()+1);
@@ -383,8 +406,10 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoParent(
             // internal->SetNextPageId(internal2->GetPageId());
             // 真是自己傻了，叶子节点怎么可能有这个函数，真是没有过脑子直接 copy 过来了，但是需要set parent id
 
-            // internal2 的第一个 kv 对的 k 需要继续向上 insert，internal2->KeyAt(0) 是无效的          
+            // internal2 的第一个 kv 对的 k 需要继续向上 insert，internal2->KeyAt(0) 是无效的
+            // 这里 internal2->KeyAt(0) 就是3了，要形成一个新的 root 节点
             InsertIntoParent(internal, internal2->KeyAt(0), internal2, transaction);
+            // new_node->SetParentPageId(internal2->GetPageId());  // 之前应该是有少一个 link 关系
         } else { new_node->SetParentPageId(internal->GetPageId()); }  // 父节点是cover住了
 
         buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);
@@ -955,9 +980,7 @@ std::string BPlusTree<KeyType, ValueType, KeyComparator>::ToString(bool verbose)
     std::queue<BPlusTreePage *> todo, tmp;
     std::stringstream tree;
     auto node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(root_page_id_));
-    if (node == nullptr) {
-        throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while printing");
-    }
+    if (node == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while printing"); }
 
     todo.push(node);
     bool first = true;
@@ -982,6 +1005,7 @@ std::string BPlusTree<KeyType, ValueType, KeyComparator>::ToString(bool verbose)
         }
 
         // 这里多加了一个临时的 queue,一层的节点全部处理完成之后，才会处理下一层的数据
+        // TODO 不为空，说明这一层还没有被处理完，这个有利于输出
         todo.pop();
         if (todo.empty() && !tmp.empty()) {
             todo.swap(tmp);
@@ -993,6 +1017,7 @@ std::string BPlusTree<KeyType, ValueType, KeyComparator>::ToString(bool verbose)
         // unpin node when we are done
         buffer_pool_manager_->UnpinPage(node->GetPageId(), false);
     }
+    std::cout << tree.str() << std::endl;
     return tree.str();
 }
 

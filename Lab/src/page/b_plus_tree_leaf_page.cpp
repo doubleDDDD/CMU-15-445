@@ -195,7 +195,7 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
     // src 是指向 MappingType( std::pair ) 的指针，所以 +1 -1 这种操作都是针对 std::pair 的
     // MappingType *src = array + GetKeySize() - size;
 
-    MappingType *src = array + size;  // 前半部分保留在原 node 中的kv
+    MappingType *src = array + size;  // 前少半部分保留在原 node 中的kv
     int movesize = GetKeySize() - size;
     recipient->CopyHalfFrom(src, movesize);
     IncreaseKeySize(-1 * movesize);  // 并没有去清理不需要的kv，仅仅是把游标改了
@@ -208,7 +208,7 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::CopyHalfFrom(
     assert(IsLeafPage() && GetSize() == 0);
     for (int i = 0; i < size; ++i)
     {
-        array[i] = *items++;
+        array[i] = *items++;  // 这里是值传递，不存在传丢了的情况
     }
     IncreaseKeySize(size);
 }
@@ -416,11 +416,14 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
 template <typename KeyType, typename ValueType, typename KeyComparator>
 std::string BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::ToString(bool verbose) const
 {
-    if (GetSize() == 0) { return ""; }
+    if (GetKeySize() == 0) { return ""; }
     std::ostringstream stream;
-    if (verbose) {stream << "[" << GetPageId() << ":" << GetParentPageId() << "]"; }
+    if (verbose) {stream << "[" << GetPageId() << ":" << GetParentPageId() << "] ———— "; }
     int entry = 0;
-    int end = GetSize();
+    int end = GetKeySize();
+
+    // std::cout << "leaf end is " << end  << std::endl;
+
     bool first = true;
 
     while (entry < end)
@@ -428,13 +431,12 @@ std::string BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::ToString(bool 
         if (first) { first = false;}
         else { stream << " "; }
         stream << std::dec << " " << array[entry].first;
-        if (verbose)
-        { stream << " (" << array[entry].second << ")";}
+        if (verbose) { stream << " (" << array[entry].second << ")";}  // 叶子节点的值 是 pageid+slotid 密集索引
         ++entry;
         stream << " ";
     }
 
-    std::cout << stream.str() << std::endl;
+    // std::cout << stream.str() << std::endl;
     return stream.str();
 }
 

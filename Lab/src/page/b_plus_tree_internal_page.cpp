@@ -48,14 +48,14 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 KeyType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::KeyAt(int index) const
 {
     // replace with your own code
-    assert(0 <= index && index < GetSize());
+    assert(0 <= index && index < GetValueSize());
     return array[index].first;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::SetKeyAt(int index, const KeyType &key)
 {
-    assert(0 <= index && index < GetSize());
+    assert(0 <= index && index < GetValueSize());
     array[index].first = key;
 }
 
@@ -200,6 +200,7 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
     BPlusTreeInternalPage *recipient,
     BufferPoolManager *buffer_pool_manager)
 {
+    // node MoveHalfTo recipient
     // recipient 是扩展出的中间节点，需要把自己匀一半出去的就是当前 node
     // 依然是新节点多一个，完事后会将新节点的第一个 k push 到父节点中
     // 怕是不能直接均的，直接均完之后，新节点的kv都是有效的 但是要上推第一个 key 到上一层，所以依然符合中间节点的 kv 布局
@@ -207,7 +208,7 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
     // ...
     // 如果是奇数，half 是一个向下取整的数
     // 我想起来之前自己做的充值返利过程了，(a+1)/2 能保证向上取整
-    // 如果a是奇数，则结果是大的那个，如果a是偶数，对结果是没有影响的
+    // 如果 a 是奇数，则结果是大的那个，如果 a 是偶数，对结果是没有影响的
     auto more_half = (GetValueSize()+1)/2;
     auto less_half = GetValueSize() - more_half;
     // 将后半部分 copy 到新 node 中，应该是 copy 多的那部分
@@ -225,9 +226,8 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
         auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
         if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyLastFrom"); }
         auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
-        child->SetParentPageId(recipient->GetPageId());
-
-        assert(child->GetParentPageId() == recipient->GetPageId());
+        child->SetParentPageId(recipient->GetPageId());  // 这里相当于set了new_node的parent id
+        // assert(child->GetParentPageId() == recipient->GetPageId());
         buffer_pool_manager->UnpinPage(child->GetPageId(), true);
     }
 
@@ -242,7 +242,7 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::CopyHalfFrom(
 {
     assert(!IsLeafPage() && GetValueSize() == 1 && size > 0);
     for (int i = 0; i < size; ++i) { array[i] = *items++;}
-    IncreaseSize(size - 1);
+    IncreaseValueSize(size - 1);  // 中间节点在初始化的时候初始 size=1，这里必须少一个1才是正确的
 }
 
 /*****************************************************************************
@@ -460,12 +460,10 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::QueueUpChildren(
     std::queue<BPlusTreePage *> *queue, BufferPoolManager *buffer_pool_manager)
 {
     // 就是子节点入队的操作
-  for (int i = 0; i < GetSize(); i++)
+  for (int i = 0; i < GetValueSize(); i++)
   {
     auto *page = buffer_pool_manager->FetchPage(array[i].second);
-    if (page == nullptr) {
-      throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while printing");
-    }
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while printing"); }
     auto *child = reinterpret_cast<BPlusTreePage *>(page->GetData());
     assert(child->GetParentPageId() == GetPageId());
     queue->push(child);
@@ -475,12 +473,13 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::QueueUpChildren(
 template <typename KeyType, typename ValueType, typename KeyComparator>
 std::string BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::ToString(bool verbose) const
 {
-    if (GetSize() == 0) {return "";}
+    if (GetValueSize() == 0) {return "";}
     std::ostringstream os;
-    if (verbose) {os << "[" << GetPageId() << "-" << GetParentPageId() << "]"; }
+    if (verbose) {os << "[" << GetPageId() << ":" << GetParentPageId() << "] ———— "; }
 
-    int entry = verbose ? 0 : 1;
-    int end = GetSize();
+    int entry = 0; // verbose ? 0 : 1;
+    int end = GetValueSize(); // 包括了第一个的无效 k，所以这个 value size 最小得是2
+    // std::cout << "internal end is " << end  << std::endl;
     bool first = true;
 
     while (entry < end)
@@ -488,11 +487,11 @@ std::string BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::ToString(b
         if (first) {first = false;}
         else { os << " "; }
         os << std::dec << " " << array[entry].first.ToString();
-        if (verbose) { os << "(" << array[entry].second << ")"; }
+        if (verbose) { os << "(" << array[entry].second << ")"; }  // 中间节点的 second 一定是一个 page id
         ++entry;
         os << " ";
     }
-    std::cout << os.str() << std::endl;
+    // std::cout << os.str() << std::endl;
     return os.str();
 }
 
