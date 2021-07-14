@@ -206,11 +206,24 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
     // 怕是不能直接均的，直接均完之后，新节点的kv都是有效的 但是要上推第一个 key 到上一层，所以依然符合中间节点的 kv 布局
     //      感觉作者做的确实有些麻烦了，写成了我看不懂的样子
     // ...
+    // ...
     // 如果是奇数，half 是一个向下取整的数
     // 我想起来之前自己做的充值返利过程了，(a+1)/2 能保证向上取整
     // 如果 a 是奇数，则结果是大的那个，如果 a 是偶数，对结果是没有影响的
-    auto more_half = (GetValueSize()+1)/2;
+
+    /**
+     * @brief 上面关于分配的方法全部都是 bullshit, 理解错了我丢
+     * 这么个 kv 分配方法会导致分配不均匀，最终导致 B+tree 的错误
+     */
+    // auto more_half = (GetValueSize()+1)/2;
+    // auto less_half = GetValueSize() - more_half;
+
+    assert(GetValueSize()-1 > 0);
+    int keysize = GetValueSize() - 1;  // 当前这个key的size应该是和秩一样的
+
+    auto more_half = (keysize+1)/2;
     auto less_half = GetValueSize() - more_half;
+
     // 将后半部分 copy 到新 node 中，应该是 copy 多的那部分
     // recipient->CopyHalfFrom(array + GetSize() - half, half, buffer_pool_manager);
     recipient->CopyHalfFrom(array + less_half, more_half, buffer_pool_manager);
@@ -460,14 +473,15 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::QueueUpChildren(
     std::queue<BPlusTreePage *> *queue, BufferPoolManager *buffer_pool_manager)
 {
     // 就是子节点入队的操作
-  for (int i = 0; i < GetValueSize(); i++)
-  {
-    auto *page = buffer_pool_manager->FetchPage(array[i].second);
-    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while printing"); }
-    auto *child = reinterpret_cast<BPlusTreePage *>(page->GetData());
-    assert(child->GetParentPageId() == GetPageId());
-    queue->push(child);
-  }
+    for (int i = 0; i < GetValueSize(); i++)
+    {
+        auto *page = buffer_pool_manager->FetchPage(array[i].second);
+        if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while printing"); }
+        auto *child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+        std::printf("p id is %d and curr id is %d\n", child->GetParentPageId(), GetPageId());
+        // assert(child->GetParentPageId() == GetPageId());
+        queue->push(child);
+    }
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>

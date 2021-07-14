@@ -1027,6 +1027,7 @@ std::string BPlusTree<KeyType, ValueType, KeyComparator>::ToString(bool verbose)
         if (todo.empty() && !tmp.empty()) {
             todo.swap(tmp);
             tree << '\n';
+            tree << '\n';
             first = true;
         }
 

@@ -50,7 +50,10 @@ public:
     // virtual int KeyIndex(const KeyType &key, const KeyComparator &comparator) const;
 
     // 彻底修改完后删除
-    int GetSize() const { return size_; }
+    int GetSize() const { 
+        std::printf("GG\n");
+        return size_; 
+    }
     void SetSize(int size) { size_ = size; }
     void IncreaseSize(int amount) { size_ += amount; }
     int GetMaxSize() const { return max_size_; }

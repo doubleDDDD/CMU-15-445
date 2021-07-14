@@ -74,12 +74,10 @@ int
 BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::KeyIndex(
     const KeyType &key, const KeyComparator &comparator) const
 {
-    for (int i = 0; i < GetSize(); ++i)
-    {
-        // 在i之前的比较中，给定key都应该是比较大的那一个
+    for (int i = 0; i < GetKeySize(); ++i) {
         if (comparator(key, array[i].first) <= 0) { return i; }
     }
-    return GetSize();
+    return GetKeySize();
 }
 
 /*
@@ -206,7 +204,7 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::CopyHalfFrom(
     MappingType *items, int size)
 {
-    assert(IsLeafPage() && GetSize() == 0);
+    assert(IsLeafPage() && GetKeySize() == 0);
     for (int i = 0; i < size; ++i)
     {
         array[i] = *items++;  // 这里是值传递，不存在传丢了的情况
@@ -308,7 +306,7 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
     MoveAllTo(BPlusTreeLeafPage *recipient, int, BufferPoolManager *)
 {
-  recipient->CopyAllFrom(array, GetSize());
+  recipient->CopyAllFrom(array, GetKeySize());
   recipient->SetNextPageId(GetNextPageId());
 }
 
@@ -316,8 +314,8 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
     CopyAllFrom(MappingType *items, int size)
 {
-  assert(GetSize() + size <= GetMaxSize());
-  auto start = GetSize();
+  assert(GetKeySize() + size <= GetMaxSize());
+  auto start = GetKeySize();
   for (int i = 0; i < size; ++i)
   {
     array[start + i] = *items++;

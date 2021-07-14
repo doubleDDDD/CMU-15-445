@@ -45,18 +45,18 @@ public:
         return Value::DeserializeFrom(data_ptr, column_type);
     }
 
-  // NOTE: for test purpose only
-  // interpret the first 8 bytes as int64_t from data vector
-  inline int64_t ToString() const {
-    return *reinterpret_cast<int64_t *>(const_cast<char *>(data));
-  }
+    // NOTE: for test purpose only
+    // interpret the first 8 bytes as int64_t from data vector
+    inline int64_t ToString() const {
+        return *reinterpret_cast<int64_t *>(const_cast<char *>(data));
+    }
 
-  // NOTE: for test purpose only
-  // interpret the first 8 bytes as int64_t from data vector
-  friend std::ostream &operator<<(std::ostream &os, const GenericKey &key) {
-    os << key.ToString();
-    return os;
-  }
+    // NOTE: for test purpose only
+    // interpret the first 8 bytes as int64_t from data vector
+    friend std::ostream &operator<<(std::ostream &os, const GenericKey &key) {
+        os << key.ToString();
+        return os;
+    }
 
     // actual location of data, extends past the end.
     char data[KeySize];
