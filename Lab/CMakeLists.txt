@@ -27,6 +27,7 @@ endif ()
 # Source: http://stackoverflow.com/a/16658858
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__VTableFILE__='\"$(subst ${CMAKE_SOURCE_DIR}/,,$(abspath $<))\"'")
 
+# 以下均为编译参数
 # ---[ Flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wall -Wextra -Werror -march=native")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-unused-private-field") #TODO: remove
@@ -45,6 +46,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(SQLITE_VTABLE_SRC_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/src/include)
 set(SQLITE_VTABLE_TEST_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/test/include)
 set(SQLITE_VTABLE_THIRD_PARTY_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/third_party)
+
+# 相当于 g++ 中的 -I 选项   也相当于环境变量中增加路径到 CPLUS_INCLUDE_PATH 变量的作用
 include_directories(${SQLITE_VTABLE_SRC_INCLUDE_DIR} ${SQLITE_VTABLE_TEST_INCLUDE_DIR} ${SQLITE_VTABLE_THIRD_PARTY_INCLUDE_DIR})
 include_directories(BEFORE src) # This is needed for gtest.
 

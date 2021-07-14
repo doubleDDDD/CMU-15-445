@@ -243,6 +243,7 @@ BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoLeaf(
          * 后半部分 copy 到 L2
          * 
          * 最终还是实现了先 insert 再 split 的策略，如果无法平均分配，即节点的秩为奇数，那么后半段容纳多的那部分
+         * 这里实现的是叶子节点的分裂
          */
         auto *leaf2 = Split<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>(leaf);
 
@@ -376,7 +377,19 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoParent(
         // 父节点保存了 v 的数量，这个上限就是 秩-1 的大小，所以能够满足先 insert 再 split 的需求
         // 这里准备采用自己的方式，即 二话不说 先insert，再判断是否要 split
         // InsertNodeAfter 会导致中间节点的kv都整体后移一下
+        // new_node 的 kv 对已经 insert 到对应的 internal 中了
         internal->InsertNodeAfter(old_node->GetPageId(), key, new_node->GetPageId());
+
+        /**
+         * @brief
+         * 这里的一个重要的操作就是给 new_node 找爸爸
+         *  如果节点未分裂，则 new_node 的爸爸就是 internal
+         *  如果 internal 也分裂了，那么 new_node 的爸爸可能是 internal 或 internal2
+         *      如果 internal 分裂出了一个 internal2 节点，则 new_node 能不能找到爸爸取决于 上推的 kv 在 internal 中还是在 internal2 中
+         * 确实新节点少了一个与父节点的 link 关系，但是这个不是必现的，找找是为啥
+         * 待分裂的中间节点是 internal，分裂后得到的新节点是 internal2，如果internal之上的节点继续分裂的话，internal就没有父节点了
+         * 所以对 new_node set 父节点的操作应该是无条件执行的，如果父节点发送了分裂，在对应节点的split函数中会处理这个问题
+         */
 
         // 后续操作尽量的与 new node/old node 隔离开了，除非要调整该层节点的父节点
         if(internal->GetValueSize() > internal->GetOrder()) 
@@ -398,6 +411,16 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoParent(
              *      创建一个 new node，old node 中的一半 kv 移动到 new old 中
              *      两个节点的大小也全部被 adjust 到实际大小
              *      被移动 node 的子节点的父节点也都调整完事了
+             * 2. 比 internal 与 internal2 低一层的部分节点（internal2中的value）需要调整父节点
+             *      第一层的节点的赋值是 finish 的
+             *      但是 new_node 就是低一层的节点啊
+             *          会遍历 internal 的孩子节点，可能将其父节点调整为 internal2
+             *      但是这里 internal 本身的父节点是没有赋值的
+             *      这里之前竟然一直都没有发现
+             * 3. internal2 再次被传递到函数 InsertIntoParent 中，就构成了 new_node
+             *      new_node 的父节点都是在继续调用一层的地方搞定的
+             * 
+             * split 解决 new_node 找爸爸的问题
              */
             auto *internal2 = Split<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>(internal);
 
@@ -409,8 +432,7 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::InsertIntoParent(
             // internal2 的第一个 kv 对的 k 需要继续向上 insert，internal2->KeyAt(0) 是无效的
             // 这里 internal2->KeyAt(0) 就是3了，要形成一个新的 root 节点
             InsertIntoParent(internal, internal2->KeyAt(0), internal2, transaction);
-            // new_node->SetParentPageId(internal2->GetPageId());  // 之前应该是有少一个 link 关系
-        } else { new_node->SetParentPageId(internal->GetPageId()); }  // 父节点是cover住了
+        } else { new_node->SetParentPageId(internal->GetPageId()); }
 
         buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);
         buffer_pool_manager_->UnpinPage(internal->GetPageId(), true);
@@ -892,16 +914,14 @@ BPlusTree<KeyType, ValueType, KeyComparator>::FindLeafPage(
 
     // 先把root节点的page拿到手
     auto *parent = buffer_pool_manager_->FetchPage(root_page_id_);
-    if (parent == nullptr) {
-        throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while FindLeafPage");
-    }
+    if (parent == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while FindLeafPage"); }
 
     if (op == Operation::READONLY) { parent->RLatch(); }
     else { parent->WLatch(); }
 
     if (transaction != nullptr) { transaction->AddIntoPageSet(parent);}
     
-    // page 实际就是b+tree上的一个node
+    // page 实际就是 b+tree 上的一个node
     auto *node = reinterpret_cast<BPlusTreePage *>(parent->GetData());
 
     /**
@@ -929,11 +949,18 @@ BPlusTree<KeyType, ValueType, KeyComparator>::FindLeafPage(
             child->RLatch();
             UnlockUnpinPages(op, transaction);
         }
-        else {
-            child->WLatch();
-        }
+        else { child->WLatch(); }
 
         node = reinterpret_cast<BPlusTreePage *>(child->GetData());
+
+        // only for debug
+        if(node->GetParentPageId() != parent_page_id) {
+            std::cout << "error key is: " << key 
+                << " and pid from self is " << node->GetParentPageId() 
+                << " and curr id is " << parent_page_id << std::endl;
+            BackTracePlus(); 
+        }
+
         assert(node->GetParentPageId() == parent_page_id);
 
         // 如果是安全的，就释放父节点那的锁
@@ -1026,8 +1053,7 @@ std::string BPlusTree<KeyType, ValueType, KeyComparator>::ToString(bool verbose)
         todo.pop();
         if (todo.empty() && !tmp.empty()) {
             todo.swap(tmp);
-            tree << '\n';
-            tree << '\n';
+            tree << '\n' << '\n';
             first = true;
         }
 

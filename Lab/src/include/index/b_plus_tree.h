@@ -25,6 +25,8 @@
 #include "index/index_iterator.h"
 #include "page/b_plus_tree_internal_page.h"
 #include "page/b_plus_tree_leaf_page.h"
+#include "stack/stack.h"
+
 
 // 现在看来这个宏是必须要的了
 // #define DEBUG_TREE_SHOW

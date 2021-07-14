@@ -121,8 +121,9 @@ ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Lookup(
     /* 要查找的key小于第一个或大于最后一个，就直接返回了，否则在一个 node 内部依然需要一些查找方法 */
     assert(GetValueSize() > 1);
     if (comparator(key, array[1].first) < 0){ return array[0].second; }
-    else if (comparator(key, array[GetValueSize() - 1].first) >= 0)
-    { return array[GetValueSize() - 1].second; }
+    else if (comparator(key, array[GetValueSize() - 1].first) >= 0) { 
+        return array[GetValueSize() - 1].second; 
+    }
 
     // 二分查找,节点内部的典型实现方式就是二分查找
     int low = 1, high = GetValueSize() - 1, mid;
@@ -221,26 +222,52 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveHalfTo(
     assert(GetValueSize()-1 > 0);
     int keysize = GetValueSize() - 1;  // 当前这个key的size应该是和秩一样的
 
+    // 首先对 key 对半分，如果不平均，则后面这个多取一个。在后面多取一个的情况下，前面的还有一个无效 key，所以要么 前面的数量大 1，要么前后一样大
+    // more half 代表的是一个数量，是后半段 kv 对的数量
+    // less half 代表的也是一个数量，是前半段 kv 对的数量，已经包含了无效 key
     auto more_half = (keysize+1)/2;
     auto less_half = GetValueSize() - more_half;
 
     // 将后半部分 copy 到新 node 中，应该是 copy 多的那部分
     // recipient->CopyHalfFrom(array + GetSize() - half, half, buffer_pool_manager);
-    recipient->CopyHalfFrom(array + less_half, more_half, buffer_pool_manager);
+    recipient->CopyHalfFrom(array + less_half, more_half, buffer_pool_manager);  // 这个就可以写的非常顺
 
     /**
      * @brief  中间节点完成了分裂，recipient 是一个 new node
      * copy 了 old node 中的孩子来 new node，所以这些 new node 的孩子节点的父节点发生了变化，修改之
      * 更新孩子节点的父节点id
      * 这里依旧在原节点中计算
+     * 
+     * 前半部可能有节点是没有父节点的，也要处理一下
+     * 沃日，这个  more half 这个地方有可能会修改错 page index
+     *      蛋疼哦
+     *  后半部分确实是 less half 开始的，而非 more half
      */
-    for (auto index = more_half; index < GetValueSize(); ++index)
+    for (auto index = less_half; index < GetValueSize(); ++index)
     {
         auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
         if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyLastFrom"); }
         auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
         child->SetParentPageId(recipient->GetPageId());  // 这里相当于set了new_node的parent id
         // assert(child->GetParentPageId() == recipient->GetPageId());
+        buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+    }
+
+    /**
+     * @brief
+     * 这个是中间节点 
+     * 解决一下前半部分的问题
+     */
+    for(auto _index = 0; _index < less_half; ++_index) 
+    {
+        auto *page = buffer_pool_manager->FetchPage(ValueAt(_index));
+        if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyLastFrom"); }
+        auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+        // 失联的部分自己补一下, 这个 child 有可能是一个没有父节点的 new_node
+        if (child->GetParentPageId()<0) { 
+            child->SetParentPageId(GetPageId());
+            // std::printf("triggrt\n"); 
+        }
         buffer_pool_manager->UnpinPage(child->GetPageId(), true);
     }
 
@@ -445,24 +472,20 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
     CopyFirstFrom(const MappingType &pair, int parent_index,
                   BufferPoolManager *buffer_pool_manager)
 {
-  assert(GetSize() + 1 < GetMaxSize());
+    assert(GetSize() + 1 < GetMaxSize());
 
-  auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while CopyFirstFrom");
-  }
-  auto parent = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());
+    auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyFirstFrom"); }
+    auto parent = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());
 
-  auto key = parent->KeyAt(parent_index);
+    auto key = parent->KeyAt(parent_index);
 
-  parent->SetKeyAt(parent_index, pair.first);
+    parent->SetKeyAt(parent_index, pair.first);
 
-  InsertNodeAfter(array[0].second, key, array[0].second);
-  array[0].second = pair.second;
+    InsertNodeAfter(array[0].second, key, array[0].second);
+    array[0].second = pair.second;
 
-  buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
+    buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
 }
 
 /*****************************************************************************
@@ -478,7 +501,7 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::QueueUpChildren(
         auto *page = buffer_pool_manager->FetchPage(array[i].second);
         if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while printing"); }
         auto *child = reinterpret_cast<BPlusTreePage *>(page->GetData());
-        std::printf("p id is %d and curr id is %d\n", child->GetParentPageId(), GetPageId());
+        // std::printf("p id is %d and curr id is %d\n", child->GetParentPageId(), GetPageId());
         // assert(child->GetParentPageId() == GetPageId());
         queue->push(child);
     }
