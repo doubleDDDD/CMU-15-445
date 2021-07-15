@@ -41,23 +41,21 @@ enum class IndexPageType { INVALID_INDEX_PAGE = 0, LEAF_PAGE, INTERNAL_PAGE };
 class BPlusTreePage 
 {
 public:
-    bool IsLeafPage() const;  /* 是否叶子节点 */
-    bool IsRootPage() const;  /* 是否 root 节点 */
-    void SetPageType(IndexPageType page_type);  /* helper */
+    bool IsLeafPage() const { return page_type_ == IndexPageType::LEAF_PAGE; }  /* 是否叶子节点 */
+    bool IsRootPage() const { return parent_page_id_ == INVALID_PAGE_ID; }  /* 是否 root 节点 */
+    void SetPageType(IndexPageType page_type) { page_type_ = page_type; }  /* helper */
 
     /* 有几个函数写成虚函数，可能会造成一些冗余，先写起来再说，叶子节点可能要补一些实现，但是表示的是 未实现 */
     // virtual KeyType KeyAt(int index) const;
     // virtual int KeyIndex(const KeyType &key, const KeyComparator &comparator) const;
 
     // 彻底修改完后删除
-    int GetSize() const { 
-        std::printf("GG\n");
-        return size_; 
-    }
+    int GetSize() const { return size_; }
     void SetSize(int size) { size_ = size; }
     void IncreaseSize(int amount) { size_ += amount; }
     int GetMaxSize() const { return max_size_; }
     void SetMaxSize(int max_size) { max_size_ = max_size; }
+    // 彻底修改完后删除
 
     int GetMaxCapacity() const { return max_kv_capacity_; }
     void SetMaxCapacity(int capacity_) { max_kv_capacity_ = capacity_; }
@@ -65,8 +63,6 @@ public:
     // 主要是计算有些内容的时候，用节点自己的秩方便一些，尽管节点的计算都是在 tree 下做的，但是这个秩我希望只 set 一次
     int GetOrder() const { return real_order_; }
     void SetOrder(int order_) { real_order_ = order_; }
-
-    // int GetMinSize() const;
 
     page_id_t GetParentPageId() const;
     void SetParentPageId(page_id_t parent_page_id);
@@ -105,6 +101,7 @@ private:
     // 彻底修改完后删除
     int size_;
     int max_size_;
+    // 彻底修改完后删除
 };
 
 } // namespace cmudb

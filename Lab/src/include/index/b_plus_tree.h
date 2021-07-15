@@ -108,6 +108,35 @@ private:
     template <typename N>
     bool CoalesceOrRedistribute(N *node, Transaction *transaction = nullptr);
 
+
+
+
+    template <typename N>
+    bool _CoalesceOrRedistribute(N* node, int sibling_page_id, int& left_or_right, Transaction *transaction = nullptr) 
+    {
+        auto *siblingpage = buffer_pool_manager_->FetchPage(sibling_page_id);
+        if (siblingpage == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); }
+
+        siblingpage->WLatch();
+        transaction->AddIntoPageSet(siblingpage);
+
+        auto sibling = reinterpret_cast<N *>(siblingpage->GetData());
+
+        if (node->IsLeafPage()){
+            if (sibling->GetKeySize()-1 >= sibling->GetMinKeySize()) {
+                // buffer_pool_manager_->UnpinPage(parent-);
+                return true;
+            } else { return false; }
+        } else {
+            if (sibling->GetValueSize()-1 >= sibling->GetMinValueSize()) {
+                // buffer_pool_manager_->UnpinPage(parent-);
+                return true;
+            } else { return false; }
+        }
+    }
+
+
+
     /*
     template <typename N>
     bool Coalesce(N *&neighbor_node, N *&node,

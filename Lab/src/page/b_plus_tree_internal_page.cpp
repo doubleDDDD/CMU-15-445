@@ -62,15 +62,13 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::SetKeyAt(int inde
 /*
  * Helper method to find and return array index(or offset), so that its value
  * equals to input "value"
+ * 中间节点才有这个方法，叶子节点无
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 int BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::ValueIndex(const ValueType &value) const
 {
-    for (int i = 0; i < GetSize(); ++i)
-    {
-        if (array[i].second == value) { return i; }
-    }
-    return GetSize();
+    for (int i = 0; i < GetValueSize(); ++i) { if (array[i].second == value) { return i; } }
+    return GetValueSize();
 }
 
 /*
@@ -91,7 +89,7 @@ ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::ValueAt(int 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::SetValueAt(int index, const ValueType &value)
 {
-    assert(0 <= index && index < GetSize());
+    assert(0 <= index && index < GetValueSize());
     array[index].second = value;
 }
 
@@ -385,32 +383,34 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
 /*
  * Remove the first key & value pair from this page to tail of "recipient"
  * page, then update relevant key & value pair in its parent page.
+ * 
+ * 叶子节点 merge 之后才会触发中间节点的 delete，进而引发重新分配等问题
+ * 
+ * 需要将自己第一个有效的 kv 拿出来
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    MoveFirstToEndOf(BPlusTreeInternalPage *recipient,
-                     BufferPoolManager *buffer_pool_manager)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveFirstToEndOf(
+    BPlusTreeInternalPage *recipient,
+    BufferPoolManager *buffer_pool_manager)
 {
-  assert(GetSize() > 1);
-  MappingType pair{KeyAt(1), ValueAt(0)};
-  page_id_t child_page_id = ValueAt(0);
-  SetValueAt(0, ValueAt(1));
-  Remove(1);
+    assert(GetValueSize() > 1);
 
-  recipient->CopyLastFrom(pair, buffer_pool_manager);
+    MappingType pair{KeyAt(1), ValueAt(0)};
 
-  // 更新孩子节点的父节点id
-  auto *page = buffer_pool_manager->FetchPage(child_page_id);
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while CopyLastFrom");
-  }
-  auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
-  child->SetParentPageId(recipient->GetPageId());
+    page_id_t child_page_id = ValueAt(0);
+    SetValueAt(0, ValueAt(1));
+    Remove(1);
 
-  assert(child->GetParentPageId() == recipient->GetPageId());
-  buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+    recipient->CopyLastFrom(pair, buffer_pool_manager);
+
+    // 更新孩子节点的父节点id
+    auto *page = buffer_pool_manager->FetchPage(child_page_id);
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyLastFrom"); }
+    auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+    child->SetParentPageId(recipient->GetPageId());
+
+    assert(child->GetParentPageId() == recipient->GetPageId());
+    buffer_pool_manager->UnpinPage(child->GetPageId(), true);
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
@@ -436,6 +436,13 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
 
   buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
 }
+
+
+
+
+
+
+
 
 /*
  * Remove the last key & value pair from this page to head of "recipient"

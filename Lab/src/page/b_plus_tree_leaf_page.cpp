@@ -258,41 +258,38 @@ bool BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Lookup(
 /*
  * First look through leaf page to see whether delete key exist or not. If
  * exist, perform deletion, otherwise return immediately.
- * NOTE: store key&value pair continuously after deletion
+ * NOTE: store key&value pair continuously after deletion  被删除 key 之后的内容要整体前移
  * @return   page size after deletion
+ * 仅仅是单纯的删除一个 key
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &comparator)
+int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::RemoveAndDeleteRecord(
+    const KeyType &key, const KeyComparator &comparator)
 {
-  if (GetSize() == 0 || comparator(key, KeyAt(0)) < 0 ||
-      comparator(key, KeyAt(GetSize() - 1)) > 0)
-  {
-    return GetSize();
-  }
+    if (GetKeySize() == 0 || comparator(key, KeyAt(0)) < 0 || 
+        comparator(key, KeyAt(GetKeySize() - 1)) > 0) { 
+        // 要被删除的 key 不在这个叶子节点中
+        return GetKeySize();
+    }
 
-  int low = 0, high = GetSize() - 1, mid;
-  while (low <= high)
-  {
-    mid = low + (high - low) / 2;
-    if (comparator(key, KeyAt(mid)) > 0)
-    {
-      low = mid + 1;
+    int low = 0, high = GetKeySize() - 1, mid;
+    while (low <= high) {
+        mid = low + (high - low) / 2;
+        if (comparator(key, KeyAt(mid)) > 0) { low = mid + 1; }
+        else if (comparator(key, KeyAt(mid)) < 0) { high = mid - 1; }
+        else {
+            // 删除节点
+            memmove(
+                (void *)(array + mid), 
+                (void *)(array + mid + 1), 
+                static_cast<size_t>((GetSize() - mid - 1) * sizeof(MappingType)));
+            IncreaseSize(-1);
+            break;
+        }
     }
-    else if (comparator(key, KeyAt(mid)) < 0)
-    {
-      high = mid - 1;
-    }
-    else
-    {
-      // 删除节点
-      memmove((void *)(array + mid), (void *)(array + mid + 1),
-              static_cast<size_t>((GetSize() - mid - 1) * sizeof(MappingType)));
-      IncreaseSize(-1);
-      break;
-    }
-  }
-  return GetSize();
+
+    // 返回减少后的节点中的 key 的数量
+    return GetKeySize();
 }
 
 /*****************************************************************************
@@ -329,83 +326,94 @@ void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
 /*
  * Remove the first key & value pair from this page to "recipient" page, then
  * update relevant key & value pair in its parent page.
+ * 
+ *  将当前 node 的第一个 kv 给到 recipient
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    MoveFirstToEndOf(BPlusTreeLeafPage *recipient,
-                     BufferPoolManager *buffer_pool_manager)
+void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::MoveFirstToEndOf(
+    BPlusTreeLeafPage *recipient,
+    BufferPoolManager *buffer_pool_manager)
 {
-  MappingType pair = GetItem(0);
-  IncreaseSize(-1);
-  memmove(array, array + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
+    MappingType pair = GetItem(0);
+    IncreaseKeySize(-1);  // 拿走第一个
+    // 整体前移
+    memmove(array, array + 1, static_cast<size_t>(GetKeySize() * sizeof(MappingType)));
+    recipient->CopyLastFrom(pair);
 
-  recipient->CopyLastFrom(pair);
+    // update parent's kv
+    auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while MoveFirstToEndOf"); }
 
-  auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while MoveFirstToEndOf");
-  }
+    // decltype 这个东西的含义在哪里呢，也算是学习到了，编译时推导，泛型编程是一定要在编译时确定类型的
+    auto parent =
+        reinterpret_cast<BPlusTreeInternalPage<KeyType, decltype(GetPageId()), KeyComparator> *>(page->GetData());
 
-  auto parent =
-      reinterpret_cast<BPlusTreeInternalPage<KeyType, decltype(GetPageId()),
-                                             KeyComparator> *>(page->GetData());
+    // B+tree 的 key 是大于等于左边，小于右边的
+    // recipient 以及 node 共同对应的那个 kv 对的 k 要发生改变
+    // 小于目标 k 的 k 位于 recipient 中，而大于等于目标 k 的 k 位于 node 中
+    // 由于错位的关系，接收多余kv的是排在前面的node，所以对应需要修改的 k 就是 value 就是当前 pageid 的
 
-  
-  parent->SetKeyAt(parent->ValueIndex(GetPageId()), pair.first);
+    // parent->SetKeyAt(parent->ValueIndex(GetPageId()), pair.first);  这里我觉得作者写的有点问题
+    parent->SetKeyAt(parent->ValueIndex(GetPageId()), array[0].first);
 
-  buffer_pool_manager->UnpinPage(GetParentPageId(), true);
+    buffer_pool_manager->UnpinPage(GetParentPageId(), true);
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    CopyLastFrom(const MappingType &item)
+void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::CopyLastFrom(const MappingType &item)
 {
-  assert(GetSize() + 1 <= GetMaxSize());
-  array[GetSize()] = item;
-  IncreaseSize(1);
+    assert(GetKeySize() + 1 <= GetMaxKeySize());
+    array[GetKeySize()] = item;
+    IncreaseKeySize(1);
 }
 
 /*
  * Remove the last key & value pair from this page to "recipient" page, then
  * update relevant key & value pair in its parent page.
+ * 
+ * 被借的 node 排在前面，接收的 recipient 排在后面，要找指向 recipient 的 v 的 k，并且将其减小
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    MoveLastToFrontOf(BPlusTreeLeafPage *recipient, int parentIndex,
-                      BufferPoolManager *buffer_pool_manager)
+void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::MoveLastToFrontOf(
+    BPlusTreeLeafPage *recipient, int parentIndex,
+    BufferPoolManager *buffer_pool_manager)
 {
-  MappingType pair = GetItem(GetSize() - 1);
-  IncreaseSize(-1);
-  recipient->CopyFirstFrom(pair, parentIndex, buffer_pool_manager);
+    // 父节点的 index 在这里给到了
+    MappingType pair = GetItem(GetKeySize() - 1);  // 把最后一个搞走
+    IncreaseKeySize(-1);
+    recipient->CopyFirstFrom(pair, parentIndex, buffer_pool_manager);
 }
 
+/**
+ * @brief 叶子节点接收了一个新的 kv 在自己的最前端，指向自己的kv对中的key要做对应的减小
+ * @tparam KeyType 
+ * @tparam ValueType 
+ * @tparam KeyComparator 
+ * @param  item             desc
+ * @param  parentIndex      desc
+ * @param  buffer_pool_managerdesc
+ */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    CopyFirstFrom(const MappingType &item, int parentIndex,
-                  BufferPoolManager *buffer_pool_manager)
+void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::CopyFirstFrom(
+    const MappingType &item,
+    int parentIndex,
+    BufferPoolManager *buffer_pool_manager)
 {
-  assert(GetSize() + 1 < GetMaxSize());
-  memmove((void *)(array + 1), (void *)array, GetSize() * sizeof(MappingType));
-  IncreaseSize(1);
-  array[0] = item;
+    assert(GetKeySize() + 1 <= GetMaxKeySize());
+    memmove((void *)(array + 1), (void *)array, GetKeySize() * sizeof(MappingType));
+    IncreaseKeySize(1);
 
-  auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while CopyFirstFrom");
-  }
+    array[0] = item;
+    auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyFirstFrom"); }
 
-  auto parent =
-      reinterpret_cast<BPlusTreeInternalPage<KeyType, decltype(GetPageId()),
-                                             KeyComparator> *>(page->GetData());
+    auto parent =
+        reinterpret_cast<BPlusTreeInternalPage<KeyType, decltype(GetPageId()), KeyComparator> *>(page->GetData());
+    
+    // 指向 node 的 key 的含义应该是所有大于等于 item.first 的 key
+    parent->SetKeyAt(parentIndex, item.first);
 
-  
-  parent->SetKeyAt(parentIndex, item.first);
-
-  buffer_pool_manager->UnpinPage(GetParentPageId(), true);
+    buffer_pool_manager->UnpinPage(GetParentPageId(), true);
 }
 
 /*****************************************************d**********************

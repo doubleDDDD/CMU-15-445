@@ -346,81 +346,86 @@ TEST(BPlusTreeTests, InsertRandom) {
     remove("test.log");
 }
 
-// TEST(BPlusTreeTests, DeleteBasic) {
-//   // create KeyComparator and index schema
-//   std::string createStmt = "a bigint";
-//   Schema *key_schema = ParseCreateStatement(createStmt);
-//   GenericComparator<8> comparator(key_schema);
+TEST(BPlusTreeTests, DeleteBasic) {
+    // create KeyComparator and index schema
+    std::string createStmt = "a bigint";
+    Schema *key_schema = ParseCreateStatement(createStmt);
+    GenericComparator<8> comparator(key_schema);
 
-//   DiskManager *disk_manager = new DiskManager("test.db");
-//   BufferPoolManager *bpm = new BufferPoolManager(50, disk_manager);
-//   // create b+ tree
-//   BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", bpm,
-//                                                            comparator);
-//   GenericKey<8> index_key;
-//   RID rid;
-//   // create transaction
-//   Transaction *transaction = new Transaction(0);
+    DiskManager *disk_manager = new DiskManager("test.db");
+    BufferPoolManager *bpm = new BufferPoolManager(50, disk_manager);
 
-//   // create and fetch header_page
-//   page_id_t page_id;
-//   auto header_page = bpm->NewPage(page_id);
-//   (void) header_page;
+    // create b+ tree
+    BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", bpm, comparator);
+    tree.SetOrder(3);
 
-//   std::vector<int64_t> keys = {1, 2, 3, 4, 5};
-//   for (auto key : keys) {
-//     int64_t value = key & 0xFFFFFFFF;
-//     rid.Set((int32_t) (key >> 32), value);
-//     index_key.SetFromInteger(key);
-//     tree.Insert(index_key, rid, transaction);
-//   }
+    GenericKey<8> index_key;
+    RID rid;
+    // create transaction
+    Transaction *transaction = new Transaction(0);
 
-//   std::vector<RID> rids;
-//   for (auto key : keys) {
-//     rids.clear();
-//     index_key.SetFromInteger(key);
-//     tree.GetValue(index_key, rids);
-//     EXPECT_EQ(rids.size(), 1);
+    // create and fetch header_page
+    page_id_t page_id;
+    auto header_page = bpm->NewPage(page_id);
+    (void) header_page;
 
-//     int64_t value = key & 0xFFFFFFFF;
-//     EXPECT_EQ(rids[0].GetSlotNum(), value);
-//   }
+    std::vector<int64_t> keys = {1, 2, 3, 4, 5};
+    for (auto key : keys) {
+        int64_t value = key & 0xFFFFFFFF;
+        rid.Set((int32_t) (key >> 32), value);
+        index_key.SetFromInteger(key);
+        tree.Insert(index_key, rid, transaction);
+    }
 
-//   int64_t start_key = keys[0];
-//   int64_t current_key = start_key;
-//   index_key.SetFromInteger(start_key);
-//   for (auto iterator = tree.Begin(index_key); iterator.isEnd() == false;
-//        ++iterator) {
-//     auto location = (*iterator).second;
-//     EXPECT_EQ(location.GetPageId(), 0);
-//     EXPECT_EQ(location.GetSlotNum(), current_key);
-//     ++current_key;
-//   }
+    std::vector<RID> rids;
+    for (auto key : keys) {
+        rids.clear();
+        index_key.SetFromInteger(key);
+        tree.GetValue(index_key, rids);
+        EXPECT_EQ(rids.size(), 1);
 
-//   EXPECT_EQ(current_key, keys.size() + start_key);
+        int64_t value = key & 0xFFFFFFFF;
+        EXPECT_EQ(rids[0].GetSlotNum(), value);
+    }
 
-//   std::vector<int64_t> remove_keys = {2, 5, 3, 1, 4};
-//   for (auto key : remove_keys) {
-//     index_key.SetFromInteger(key);
-//     tree.Remove(index_key, transaction);
-//   }
+    int64_t start_key = keys[0];
+    int64_t current_key = start_key;
+    index_key.SetFromInteger(start_key);
+    for (auto iterator = tree.Begin(index_key); iterator.isEnd() == false;
+        ++iterator) {
+        auto location = (*iterator).second;
+        EXPECT_EQ(location.GetPageId(), 0);
+        EXPECT_EQ(location.GetSlotNum(), current_key);
+        ++current_key;
+    }
 
-//   // all gone
-//   rids.clear();
-//   for (auto key : keys) {
-//     rids.clear();
-//     index_key.SetFromInteger(key);
-//     tree.GetValue(index_key, rids);
-//     EXPECT_EQ(rids.size(), 0);
-//   }
+    EXPECT_EQ(current_key, keys.size() + start_key);
 
-//   bpm->UnpinPage(HEADER_PAGE_ID, true);
-//   delete transaction;
-//   delete disk_manager;
-//   delete bpm;
-//   remove("test.db");
-//   remove("test.log");
-// }
+    tree.ToString(true);
+    return;
+
+    std::vector<int64_t> remove_keys = {2, 5, 3, 1, 4};
+    for (auto key : remove_keys) {
+        index_key.SetFromInteger(key);
+        tree.Remove(index_key, transaction);
+    }
+
+    // all gone
+    rids.clear();
+    for (auto key : keys) {
+        rids.clear();
+        index_key.SetFromInteger(key);
+        tree.GetValue(index_key, rids);
+        EXPECT_EQ(rids.size(), 0);
+    }
+
+    bpm->UnpinPage(HEADER_PAGE_ID, true);
+    delete transaction;
+    delete disk_manager;
+    delete bpm;
+    remove("test.db");
+    remove("test.log");
+}
 
 // TEST(BPlusTreeTests, DeleteScale) {
 //   // create KeyComparator and index schema
