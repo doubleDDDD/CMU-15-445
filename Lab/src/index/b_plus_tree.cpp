@@ -539,6 +539,8 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::Remove(
 {
     if (IsEmpty()) { return; }
 
+    // std::printf("start remove\n");
+
     // 先找到要删除的key所在的叶子节点
     auto *leaf = FindLeafPage(key, false, Operation::DELETE, transaction);
 
@@ -548,9 +550,47 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::Remove(
         // 叶子节点的函数 RemoveAndDeleteRecord 仅仅是简单的删除一个 key，并且返回新的 key 的个数
         if (leaf->RemoveAndDeleteRecord(key, comparator_) != size_before_deletion) {
             // key 在叶子节点中删除成功
-            if (CoalesceOrRedistribute(leaf, transaction)) { transaction->AddIntoDeletedPageSet(leaf->GetPageId()); }
+            if (CoalesceOrRedistribute(leaf, transaction)) { 
+                // transaction->AddIntoDeletedPageSet(leaf->GetPageId()); 
+            }
         }
+        // 下面这个操作会清理 buffer pool manager 的缓存，最后导致出错，写并发的时候再考虑这里
         UnlockUnpinPages(Operation::DELETE, transaction);
+    }
+}
+
+/**
+ * @brief 这是自己加的一个辅助函数，是为了使得代码结构看起来更规整
+ * read and check
+ * 在 写锁内 执行的
+ * @tparam KeyType 
+ * @tparam ValueType 
+ * @tparam KeyComparator 
+ * @tparam N 
+ * @param  node             desc
+ * @param  sibling_page_id  desc
+ * @param  transaction      desc
+ * @return true @c 
+ * @return false @c 
+ */
+template <typename KeyType, typename ValueType, typename KeyComparator>
+template <typename N>
+bool BPlusTree<KeyType, ValueType, KeyComparator>::_CoalesceOrRedistribute(
+    N *sibling,
+    BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent) 
+{
+    if (sibling->IsLeafPage()){
+        auto _sibling = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(sibling);
+        if (_sibling->GetKeySize()-1 >= _sibling->GetMinKeySize()) {
+            buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
+            return true;
+        } else { return false; }
+    } else {
+        auto _sibling = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *>(sibling);
+        if (_sibling->GetValueSize()-1 >= _sibling->GetMinValueSize()) {
+            buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
+            return true;
+        } else { return false; }
     }
 }
 
@@ -575,12 +615,18 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::Remove(
  *      Try to re-distribute, borrowing from sibling (adjacent node with same parent as L, 相邻的节点，左右都可以的).
  *      If re-distribution fails, merge Land sibling.
  *          If merge occurred, must delete entry (pointing to Lor sibling) from parent of L
+ *
+ * 向兄弟节点借或合并兄弟节点，指的是 B+tree 中有相同父节点的节点称为兄弟节点，否则是堂兄弟节点
+ * B+tree 的最小秩是2，所以B+tree除了 root 节点，一定有兄弟节点
+ * 即使是对于边界上的节点，无论是左边还是右边，一定有一个 
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 template <typename N>
 bool BPlusTree<KeyType, ValueType, KeyComparator>::CoalesceOrRedistribute(
     N *node, Transaction *transaction)
 {
+    // std::printf("start coalesce or redistribute\n");
+
     // node 可能是叶子节点也可能是中间节点，只有一个共同特性，那就是都被删了东西，所以触发该函数的操作
     if (node->IsRootPage()) { return AdjustRoot(node); }
 
@@ -593,106 +639,169 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::CoalesceOrRedistribute(
         if (_node->GetValueSize() >= _node->GetMinValueSize()) { return false; }
     }
 
+    // std::printf("leaf node is ok\n");
+
     // 节点删除完毕之后。节点已经不满足 b+tree 的条件了
     auto *page = buffer_pool_manager_->FetchPage(node->GetParentPageId());
-    if (page == nullptr) { 
-        throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); 
-    }
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); }
     auto parent = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
 
-    // 找到这个父节点中指向 该 page 的 kv对 对应的 index
+    // 找到这个父节点中指向 该 page 的 kv 对 对应的 index
     int value_index = parent->ValueIndex(node->GetPageId());
     // ValueIndex失败就会返回超过下标的一个值，这个与迭代器中 end() 指向最后一个元素的后一个的用法是一致的
-    assert(value_index!=parent->GetValueSize());
+    assert(value_index != parent->GetValueSize());
 
     /**
      * @brief 选择一个兄弟节点
      *      原作者这里貌似是仅仅只借左边的兄弟节点，如果是第一个才会借右边的兄弟节点
      * 按照定义，左右兄弟节点都是 可以借的，左边的优先，边界上的节点只有一个选择
+     *
+     * 想到得到兄弟节点，就一定要去找爸爸，说不定还得去去找爷爷，表弟表哥也是兄弟么
+     *
+     * 能跑到这里来的，一定是有父节点的
+     *
+     * 自己错了，表兄弟节点不算是可以合并的兄弟节点，导致自己把问题高复杂了，就是没搞清楚就开始干代码
+     * 也有点浪费时间
      */
     int left_sibling_page_id = -1;
     int right_sibling_page_id = -1;
 
-    if (value_index == 0) {
-        // 没有左兄弟，只能向右边的兄弟去借
-        right_sibling_page_id = parent->ValueAt(value_index + 1); 
-    } else if (value_index == parent->GetValueSize()-1) { 
-        // 没有右兄弟，只能向左边的兄弟去借
-        left_sibling_page_id = parent->ValueAt(value_index - 1); 
+    // 首先判断父节点是不是 root
+    // if(parent->IsRootPage()){
+    //     if (value_index == 0) {
+    //         // 它就是整个 b+tree 的第一个节点，没有左兄弟，只能向右边的兄弟去借
+    //         right_sibling_page_id = parent->ValueAt(value_index + 1); 
+    //     } else if (value_index == parent->GetValueSize()-1) { 
+    //         // 它是整个 B+tree 的最后一个节点，没有右兄弟，只能向左边的兄弟去借
+    //         left_sibling_page_id = parent->ValueAt(value_index - 1); 
+    //     } else {
+    //         // 左右节点都准备好先
+    //         left_sibling_page_id = parent->ValueAt(value_index - 1);
+    //         right_sibling_page_id = parent->ValueAt(value_index + 1);
+    //     }
+    // } else {
+    //     // 对于中间节点需要检查到爷爷
+    //     auto *g_page = buffer_pool_manager_->FetchPage(parent->GetParentPageId());
+    //     if (g_page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); }
+    //     auto grandparent = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(g_page->GetData());
+    //     int father_value_index = grandparent->ValueIndex(parent->GetPageId());
+
+    //     if (value_index == 0) {
+    //         // 它是父节点的第一个儿子
+    //         right_sibling_page_id = parent->ValueAt(value_index + 1);
+    //         // 是否有左节点要去检查 爷爷 节点
+    //         if (father_value_index>0) {
+    //             // uncle 最右边的就是 node 的左边的兄弟
+    //             int uncle_id = grandparent->ValueAt(father_value_index-1);
+    //             auto *uncle_paga = buffer_pool_manager_->FetchPage(uncle_id);
+    //             if (uncle_paga == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); }
+    //             auto uncle = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(uncle_paga->GetData());
+    //             left_sibling_page_id = uncle->ValueAt(uncle->GetValueSize()-1);
+    //         }
+    //     } else if (value_index == parent->GetValueSize()-1) { 
+    //         // 它是父节点的最后一个儿子，是否有右兄弟，也要去检查爷爷
+    //         left_sibling_page_id = parent->ValueAt(value_index - 1);
+    //         if (father_value_index<grandparent->GetValueSize()-1){
+    //             // 说明爸爸的右边还有兄弟
+    //             int uncle_id = grandparent->ValueAt(father_value_index+1);
+    //             auto *uncle_paga = buffer_pool_manager_->FetchPage(uncle_id);
+    //             if (uncle_paga == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); }
+    //             auto uncle = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(uncle_paga->GetData());
+    //             right_sibling_page_id = uncle->ValueAt(0);  //因为这个叔叔是右边的，所以叔叔最小的孩子就是我的兄弟
+    //         }
+    //     } else {
+    //         // 左右节点都准备好先
+    //         left_sibling_page_id = parent->ValueAt(value_index - 1);
+    //         right_sibling_page_id = parent->ValueAt(value_index + 1);
+    //     }
+    // }
+
+    // value index 是出问题的节点在父节点中的index
+    if (value_index==0){
+        // 只有右边有兄弟
+        right_sibling_page_id = parent->ValueAt(value_index + 1);
+    } else if(value_index == parent->GetValueSize()-1){
+        // 只有左边有兄弟
+        left_sibling_page_id = parent->ValueAt(value_index - 1);
     } else {
-        // 左右节点都准备好先
+        // 左右倒是都有兄弟;
         left_sibling_page_id = parent->ValueAt(value_index - 1);
         right_sibling_page_id = parent->ValueAt(value_index + 1);
     }
 
+    // TODO 并发的支持
+
+    // Redistribute 是有更新父节点的操作的
+
+    // for debug
+    // std::printf(
+    //     "value_index:%d, left:%d, right:%d\n", 
+    //     value_index, left_sibling_page_id, right_sibling_page_id);
+
     // if-else
-    if (left_sibling_page_id>0 && right_sibling_page_id>0){
+    if (left_sibling_page_id>0 && right_sibling_page_id>0)
+    {
         // left and right are all ok, left first
+        // 先尝试 左边的是否可以 no merge
+        auto *siblingpage = buffer_pool_manager_->FetchPage(left_sibling_page_id);
+        if (siblingpage == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); }
 
-        // 先尝试 左边的是否可以 不merge
-        _CoalesceOrRedistribute(node, )
+        // siblingpage->WLatch();
+        // transaction->AddIntoPageSet(siblingpage);
 
-        // 再尝试 右边是否可以 不merge
+        auto sibling = reinterpret_cast<N *>(siblingpage->GetData());
+        if (_CoalesceOrRedistribute(sibling, parent)) {
+            // redistribution no merge
+            // redistribute is true
+            // Redistribute(N *neighbor_node, N *node, int index)
+            // move from neighbor to node
+            // indx=0 means neighbor's first, otherwise neighbor's last
+            Redistribute<N>(sibling, node, 1);  // sibling is left neighbor, move last
+            // siblingpage->WUnlatch();
+            return true;
+        }
 
-        // 均返回 false，则意味着必须 merge
+        auto _siblingpage = buffer_pool_manager_->FetchPage(right_sibling_page_id);
+        if (_siblingpage == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); }
+
+        auto _sibling = reinterpret_cast<N *>(_siblingpage->GetData());
+        // 再尝试 右边是否可以 no merge
+        if (_CoalesceOrRedistribute(_sibling, parent)) {
+            // redistribution no merge
+            Redistribute<N>(_sibling, node, 0);  // move sibling's first to the head of node
+            return true;
+        }
+
+        // 必须 merge，如果 merge ，直接找左边的 merge，默认向左合并，向左合并，父节点可以直接删除对应的kv对
+        // 如果是向右合并的，指向被合并的 page 的 kv 对的 v 需要被删除
+        Coalesce<N>(sibling, node, parent, value_index, transaction);
+        return true;
     } else {
         if (left_sibling_page_id>0) {
-
-            if (_CoalesceOrRedistribute()){
-                Redistribute<N>(sibling, node, 1);
+            // only left sibling
+            auto *siblingpage = buffer_pool_manager_->FetchPage(left_sibling_page_id);
+            if (siblingpage == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); }
+            auto sibling = reinterpret_cast<N *>(siblingpage->GetData());
+            if (_CoalesceOrRedistribute(sibling, parent)){
+                Redistribute<N>(sibling, node, 1);  // move sibling's last to the head of node
             } else {
-                Coalesce<N>(node, sibling, parent, 1, transaction);
-                transaction->AddIntoDeletedPageSet(sibling_page_id);
+                // 只有左边有兄弟，自己本身是最后一个，向左边合并
+                Coalesce<N>(sibling, node, parent, value_index, transaction);
             }
-
-
-
-
-
-
-            // only left
-            auto *leftsiblingpage = buffer_pool_manager_->FetchPage(left_sibling_page_id);
-            if (leftsiblingpage == nullptr) { 
-                throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); 
-            }
-
-            leftsiblingpage->WLatch();
-            transaction->AddIntoPageSet(leftsiblingpage);
-
-            auto sibling = reinterpret_cast<N *>(leftsiblingpage->GetData());
-
-            if (node->IsLeafPage()){
-                if (sibling->GetKeySize() - 1 >= sibling->GetMinKeySize()) {
-                    buffer_pool_manager_->UnpinPage(parent->GetPageId(), true);
-                    // redistribute is true
-                    // Redistribute(N *neighbor_node, N *node, int index)
-                    // move from neighbor to node
-                    // indx=0 means neighbor's first, otherwise neighbor's last
-                    Redistribute<N>(sibling, node, 1);  // sibling is left neighbor, move last
-                } else {
-                    // merge，父节点要少一个kv
-                    // Coalesce<N>(node, sibling, parent, 1, transaction);
-                    // transaction->AddIntoDeletedPageSet(sibling_page_id);
-                }
-            } else {
-                if (sibling->GetValueSize() - 1 >= sibling->GetMinValueSize()) {
-                    buffer_pool_manager_->UnpinPage(parent->GetPageId(), true);
-                    // redistribute is true
-                    Redistribute<N>(sibling, node, 1);
-                } else {
-                    // merge
-                }
-            }
-
-
-
-
-
-
-
-
         } else {
-            // only right
+            // only right sibling
+            // sibling 位于 node 右侧，但是这个地方我想要 sibling 的内容 merge 到 node 中
+            // 然后保留 node
+            auto *siblingpage = buffer_pool_manager_->FetchPage(right_sibling_page_id);
+            if (siblingpage == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute"); }
+            auto sibling = reinterpret_cast<N *>(siblingpage->GetData());
+            if (_CoalesceOrRedistribute(sibling, parent)){
+                Redistribute<N>(sibling, node, 0);  // move sibling's first to the end of node
+            } else {
+                // 由右向左合并，这里调整一下
+                value_index = parent->ValueIndex(sibling->GetPageId());
+                Coalesce<N>(node, sibling, parent, value_index, transaction);
+            }
         }
     }
 
@@ -775,9 +884,11 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::CoalesceOrRedistribute(
 
 /*
  * Move all the key & value pairs from one page to its sibling page, and notify
- * buffer pool manager to delete this page. Parent page must be adjusted to
- * take info of deletion into account. Remember to deal with coalesce or
- * redistribute recursively if necessary.
+ * buffer pool manager to delete this page
+ 
+ * Parent page must be adjusted to take info of deletion into account
+ * Remember to deal with coalesce or redistribute recursively if necessary.
+ *
  * Using template N to represent either internal page or leaf page.
  * @param   neighbor_node      sibling page of input "node"
  * @param   node               input from method coalesceOrRedistribute()
@@ -788,27 +899,22 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::CoalesceOrRedistribute(
 template <typename KeyType, typename ValueType, typename KeyComparator>
 template <typename N>
 void BPlusTree<KeyType, ValueType, KeyComparator>::Coalesce(
-    N *neighbor_node, N *node,
+    N *neighbor_node, 
+    N *node,
     BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent,
     int index, Transaction *transaction)
 {
+    // move kv from node to neighbor
+    // index 位置处的 kv 的 v 原本指向的是被 删掉的 node
+    // 无论向左合并还是向右合并，被合并掉的node在父节点中对应的index均直接删除即可
+    // 这里有一个比较重要的思考，确实无需调整被合并的page在父节点中对应的kv对的值，是直接合规的
     node->MoveAllTo(neighbor_node, index, buffer_pool_manager_);
+    parent->Remove(index);  // 所以这个 remove 方法一定只有中间节点才有的，只是一个简单的 remove
+    // buffer_pool_manager_->DeletePage(node->GetPageId());
 
-    parent->Remove(index);
-
-    if (CoalesceOrRedistribute(parent, transaction))
-    {
-        transaction->AddIntoDeletedPageSet(parent->GetPageId());
-    }
+    // 递归操作
+    if (CoalesceOrRedistribute(parent, transaction)) { transaction->AddIntoDeletedPageSet(parent->GetPageId()); }
 }
-
-
-
-
-
-
-
-
 
 /*
  * Redistribute key & value pairs from one page to its sibling page.
@@ -821,6 +927,8 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::Coalesce(
  * Using template N to represent either internal page or leaf page.
  * @param   neighbor_node      sibling page of input "node"
  * @param   node               input from method coalesceOrRedistribute()
+ *
+ * 这两个节点一定是有相同的父节点的，正儿八经的兄弟节点
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 template <typename N>
@@ -835,9 +943,7 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::Redistribute(N *neighbor_node
         // 选择的是最左边的兄弟，最左边兄弟的最大值来自己这里做第一个
         // neighbor_node's last to node
         auto *page = buffer_pool_manager_->FetchPage(node->GetParentPageId());
-        if (page == nullptr) {
-            throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while Redistribute");
-        }
+        if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while Redistribute"); }
         auto parent = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
         int idx = parent->ValueIndex(node->GetPageId());
         buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
@@ -845,11 +951,6 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::Redistribute(N *neighbor_node
         neighbor_node->MoveLastToFrontOf(node, idx, buffer_pool_manager_);
     }
 }
-
-
-
-
-
 
 /*
  * Update root page if necessary
@@ -860,46 +961,48 @@ void BPlusTree<KeyType, ValueType, KeyComparator>::Redistribute(N *neighbor_node
  * case 2: when you delete the last element in whole b+ tree
  * @return : true means root page should be deleted, false means no deletion
  * happened
+ * 
+ * 节点的删除传递到了 b+tree 的 root 节点，即 root 节点删除了一个 kv
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-bool BPlusTree<KeyType, ValueType, KeyComparator>::
-    AdjustRoot(BPlusTreePage *old_root_node)
+bool BPlusTree<KeyType, ValueType, KeyComparator>::AdjustRoot(
+    BPlusTreePage *old_root_node)
 {
-  // 如果删除了最后一个节点
-//   if (old_root_node->IsLeafPage())
-//   {
-//     if (old_root_node->GetSize() == 0)
-//     {
-//       root_page_id_ = INVALID_PAGE_ID;
-//       UpdateRootPageId(false);
-//       return true;
-//     }
-//     return false;
-//   }
+    // 如果删除了最后一个节点
+    if (old_root_node->IsLeafPage()) {
+        auto _old_root_node = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>*> (old_root_node);
+        if (_old_root_node->GetKeySize() == 0) {
+            root_page_id_ = INVALID_PAGE_ID;
+            UpdateRootPageId(false);  // 修改索引表，以能够正确的找到 b+ tree 的 root 节点
+            return true;
+        }
+        return false;
+    }
 
-  // 删除了还有最后一个节点
-//   if (old_root_node->GetSize() == 1)
-//   {
-//     auto root =
-//         reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t,
-//                                                KeyComparator> *>(old_root_node);
-//     root_page_id_ = root->ValueAt(0);
-//     UpdateRootPageId(false);
+    // root 一定是中间节点
+    auto _old_root_node = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>*> (old_root_node);
 
-//     auto *page = buffer_pool_manager_->FetchPage(root_page_id_);
-//     if (page == nullptr)
-//     {
-//       throw Exception(EXCEPTION_TYPE_INDEX,
-//                       "all page are pinned while AdjustRoot");
-//     }
-//     auto new_root =
-//         reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t,
-//                                                KeyComparator> *>(page->GetData());
-//     new_root->SetParentPageId(INVALID_PAGE_ID);
-//     buffer_pool_manager_->UnpinPage(root_page_id_, true);
-//     return true;
-//   }
-  return false;
+    // 删除了还有最后一个节点
+    if (_old_root_node->GetValueSize() == 1) {
+        // b+ tree 的高度在这个地方要降低了
+        auto root =
+            reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(_old_root_node);
+        // int old_root_page_id = root_page_id_;
+        root_page_id_ = root->ValueAt(0);  // root 节点发生了修改
+        
+        UpdateRootPageId(false);
+        // buffer_pool_manager_->DeletePage(old_root_page_id);
+
+        auto *page = buffer_pool_manager_->FetchPage(root_page_id_);
+        if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while AdjustRoot"); }
+        auto new_root = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
+        new_root->SetParentPageId(INVALID_PAGE_ID);
+        buffer_pool_manager_->UnpinPage(root_page_id_, true);
+        return true;
+    }
+
+    // root 少了之后没有什么影响
+    return false;
 }
 
 /*****************************************************************************
@@ -968,37 +1071,31 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 void BPlusTree<KeyType, ValueType, KeyComparator>::
     UnlockUnpinPages(Operation op, Transaction *transaction)
 {
-  if (transaction == nullptr)
-  {
-    return;
-  }
+    // 先无条件返回，先保证b+tree删除的逻辑基本正确先
+    if (transaction == nullptr) { return; }
 
-  for (auto *page : *transaction->GetPageSet())
-  {
-    if (op == Operation::READONLY)
+    for (auto *page : *transaction->GetPageSet())
     {
-      page->RUnlatch();
-      buffer_pool_manager_->UnpinPage(page->GetPageId(), false);
+        if (op == Operation::READONLY) {
+            page->RUnlatch();
+            buffer_pool_manager_->UnpinPage(page->GetPageId(), false);
+        }
+        else {
+            page->WUnlatch();
+            buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+        }
     }
-    else
-    {
-      page->WUnlatch();
-      buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+    transaction->GetPageSet()->clear();
+
+    // for (auto page_id : *transaction->GetDeletedPageSet()) {
+    //     buffer_pool_manager_->DeletePage(page_id);
+    // }
+    transaction->GetDeletedPageSet()->clear();
+
+    if (root_is_locked) {
+        root_is_locked = false;
+        unlockRoot();
     }
-  }
-  transaction->GetPageSet()->clear();
-
-  for (auto page_id : *transaction->GetDeletedPageSet())
-  {
-    buffer_pool_manager_->DeletePage(page_id);
-  }
-  transaction->GetDeletedPageSet()->clear();
-
-  if (root_is_locked)
-  {
-    root_is_locked = false;
-    unlockRoot();
-  }
 }
 
 /*
@@ -1121,19 +1218,13 @@ void
 BPlusTree<KeyType, ValueType, KeyComparator>::UpdateRootPageId(bool insert_record)
 {
     auto *page = buffer_pool_manager_->FetchPage(HEADER_PAGE_ID);
-    if (page == nullptr) {
-        throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while UpdateRootPageId");
-    }
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while UpdateRootPageId"); }
     auto *header_page = reinterpret_cast<HeaderPage *>(page->GetData());
-
-    if (insert_record)
-    {
+    if (insert_record) {
         // create a new record<index_name + root_page_id> in header_page
         header_page->InsertRecord(index_name_, root_page_id_);
     }
-    else
-
-    {
+    else {
         // update root_page_id in header_page
         header_page->UpdateRecord(index_name_, root_page_id_);
     }

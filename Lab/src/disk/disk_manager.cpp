@@ -94,6 +94,8 @@ void DiskManager::ReadPage(page_id_t page_id, char *page_data) {
     int offset = page_id * PAGE_SIZE;
     // check if read beyond file length
     if (offset > GetFileSize(file_name_)) {
+        BackTracePlus();
+        std::printf("pageid:%d, offset: %d, file size: %d\n\n", page_id, offset, GetFileSize(file_name_));
         LOG_DEBUG("I/O error while reading");
         // std::cerr << "I/O error while reading" << std::endl;
     } else {

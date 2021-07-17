@@ -290,17 +290,15 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::CopyHalfFrom(
  * Remove the key & value pair in internal page according to input index(a.k.a
  * array offset)
  * NOTE: store key&value pair continuously after deletion
+ *
+ * 就是简单的直接删除的操作
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    Remove(int index)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::Remove(int index)
 {
-  assert(0 <= index && index < GetSize());
-  for (int i = index; i < GetSize() - 1; ++i)
-  {
-    array[i] = array[i + 1];
-  }
-  IncreaseSize(-1);
+    assert(0 <= index && index < GetValueSize());
+    for (int i = index; i < GetValueSize() - 1; ++i) { array[i] = array[i + 1]; }
+    IncreaseValueSize(-1);
 }
 
 /*
@@ -308,13 +306,16 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
  * NOTE: only call this method within AdjustRoot()(in b_plus_tree.cpp)
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    RemoveAndReturnOnlyChild()
+ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::RemoveAndReturnOnlyChild()
 {
-  IncreaseSize(-1);
-  assert(GetSize() == 1);
-  return ValueAt(0);
+    IncreaseValueSize(-1);
+    assert(GetValueSize() == 1);
+    return ValueAt(0);
 }
+
+/*****************************************************************************
+ * MERGE 与 redistribution U1S1 写的还是蛮清晰的
+ *****************************************************************************/
 
 /*****************************************************************************
  * MERGE
@@ -322,59 +323,79 @@ ValueType BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
 /*
  * Remove all of key & value pairs from this page to "recipient" page, then
  * update relevant key & value pair in its parent page.
+ *
+ * 中间节点的 merge 操作，等一下自己就没了。自己会被删除掉
+ *
+ * 有过一个 bug，是因为无法确定 当前 node 与 recipient 的关系
+ * 原作者这个意思看来，只有右边的向左边 靠拢 这一种选择
+ * 但是应该左右 merge 应该都是可以的，但是始终向左好像还要顺畅一些
+ * 我该用哪种方式呢
+ *
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    MoveAllTo(BPlusTreeInternalPage *recipient, int index_in_parent,
-              BufferPoolManager *buffer_pool_manager)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveAllTo(
+    BPlusTreeInternalPage *recipient, 
+    int index_in_parent,
+    BufferPoolManager *buffer_pool_manager)
 {
-  // 首先先获得父节点页面
-  auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while MoveAllTo");
-  }
-  auto *parent = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());
+    // 首先先获得父节点页面
+    auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while MoveAllTo"); }
+    auto *parent = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());  // 这个 parent 是中间节点的 parent
+   
+    // 被合并的 node 的第一个 key 是无效的，被合并之后就不是第一个 key 了，所以需要 update 成一个有效的 key
+    // 相当于有一个 key 下沉的动作，之后这个 父节点中的 key 会被删除掉
+    SetKeyAt(0, parent->KeyAt(index_in_parent));
 
-  // 更新父节点中的key值
-  SetKeyAt(0, parent->KeyAt(index_in_parent));
-
-  assert(parent->ValueAt(index_in_parent) == GetPageId());
-
-  buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
-
-  recipient->CopyAllFrom(array, GetSize(), buffer_pool_manager);
-
-  // 更新孩子节点的父节点id
-  for (auto index = 0; index < GetSize(); ++index)
-  {
-    auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
-    if (page == nullptr)
-    {
-      throw Exception(EXCEPTION_TYPE_INDEX,
-                      "all page are pinned while CopyLastFrom");
+    if(parent->ValueAt(index_in_parent) != GetPageId()){
+        std::printf(
+            "debug info: index_in_parent: %d, first:%d, second:%d\n", 
+            index_in_parent, 
+            parent->ValueAt(index_in_parent), 
+            GetPageId());
     }
-    auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
-    child->SetParentPageId(recipient->GetPageId());
 
-    assert(child->GetParentPageId() == recipient->GetPageId());
-    buffer_pool_manager->UnpinPage(child->GetPageId(), true);
-  }
+    assert(parent->ValueAt(index_in_parent) == GetPageId());
+    buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
+    recipient->CopyAllFrom(array, GetValueSize(), buffer_pool_manager);
+
+    // 更新孩子节点的父节点id
+    for (auto index = 0; index < GetValueSize(); ++index)
+    {
+        auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
+        if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyLastFrom"); }
+        auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+        child->SetParentPageId(recipient->GetPageId());
+        assert(child->GetParentPageId() == recipient->GetPageId());
+        buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+    }
 }
 
+/**
+ * @brief 中间节点的 copy 操作
+ * @tparam KeyType 
+ * @tparam ValueType 
+ * @tparam KeyComparator 
+ * @param  items            desc
+ * @param  size             desc
+ * @param  buffer_pool_managerdesc
+ */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    CopyAllFrom(MappingType *items, int size,
-                BufferPoolManager *buffer_pool_manager)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::CopyAllFrom(
+    MappingType *items, 
+    int size,
+    BufferPoolManager *buffer_pool_manager)
 {
-  assert(GetSize() + size <= GetMaxSize());
-  int start = GetSize();
-  for (int i = 0; i < size; ++i)
-  {
-    array[start + i] = *items++;
-  }
-  IncreaseSize(size);
+    if(GetValueSize() + size > GetMaxValueSize()) {
+        std::printf(
+            "copy all from error, size:%d, add:%d, max:%d\n", 
+            GetValueSize(), size, GetMaxValueSize()); 
+        BackTracePlus();
+    }
+    assert(GetValueSize() + size <= GetMaxValueSize());
+    int start = GetValueSize();
+    for (int i = 0; i < size; ++i) { array[start + i] = *items++; }
+    IncreaseValueSize(size);
 }
 
 /*****************************************************************************
@@ -395,12 +416,13 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveFirstToEndOf(
 {
     assert(GetValueSize() > 1);
 
-    MappingType pair{KeyAt(1), ValueAt(0)};
+    MappingType pair{KeyAt(1), ValueAt(0)};  // 这个 key 要用来替换父节点那个拿下来的值，要重新退一个意思就是
 
-    page_id_t child_page_id = ValueAt(0);
+    page_id_t child_page_id = ValueAt(0);  // 等下 child_page_id  的爸爸就要变了
     SetValueAt(0, ValueAt(1));
-    Remove(1);
+    Remove(1);  // remove操作会整体前移
 
+    // 其实就是把第一个全部都备份下来了么
     recipient->CopyLastFrom(pair, buffer_pool_manager);
 
     // 更新孩子节点的父节点id
@@ -413,81 +435,90 @@ void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveFirstToEndOf(
     buffer_pool_manager->UnpinPage(child->GetPageId(), true);
 }
 
+/**
+ * @brief 对于接受者来说应该是一个追加的过程
+ * @tparam KeyType 
+ * @tparam ValueType 
+ * @tparam KeyComparator 
+ * @param  pair             desc
+ * @param  buffer_pool_managerdesc
+ */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    CopyLastFrom(const MappingType &pair, BufferPoolManager *buffer_pool_manager)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::CopyLastFrom(
+    const MappingType &pair, 
+    BufferPoolManager *buffer_pool_manager)
 {
-  assert(GetSize() + 1 <= GetMaxSize());
+    assert(GetValueSize() + 1 <= GetMaxValueSize());
 
-  auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while CopyLastFrom");
-  }
-  auto parent = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());
+    auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyLastFrom"); }
+    auto parent = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());
 
-  auto index = parent->ValueIndex(GetPageId());
-  auto key = parent->KeyAt(index + 1);
+    auto index = parent->ValueIndex(GetPageId());
+    auto key = parent->KeyAt(index + 1);  // 这个key是之前split的时候推上去的key
 
-  array[GetSize()] = {key, pair.second};
-  IncreaseSize(1);
-  parent->SetKeyAt(index + 1, pair.first);
+    array[GetValueSize()] = {key, pair.second};
+    IncreaseValueSize(1);
 
-  buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
+    parent->SetKeyAt(index + 1, pair.first);
+
+    // 这个关系确实有点复杂哦
+    buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
 }
-
-
-
-
-
-
-
 
 /*
  * Remove the last key & value pair from this page to head of "recipient"
  * page, then update relevant key & value pair in its parent page.
+ * 要把最后一个贡献出来
+ * parent_index 是接收者在父节点中的 index
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    MoveLastToFrontOf(BPlusTreeInternalPage *recipient, int parent_index,
-                      BufferPoolManager *buffer_pool_manager)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::MoveLastToFrontOf(
+    BPlusTreeInternalPage *recipient, 
+    int parent_index,
+    BufferPoolManager *buffer_pool_manager)
 {
-  assert(GetSize() > 1);
-  IncreaseSize(-1);
-  MappingType pair = array[GetSize()];
-  page_id_t child_page_id = pair.second;
+    assert(GetValueSize() > 1);
+    IncreaseValueSize(-1);
 
-  recipient->CopyFirstFrom(pair, parent_index, buffer_pool_manager);
+    MappingType pair = array[GetValueSize()];
+    page_id_t child_page_id = pair.second;  // 这个孩子的爸爸要变了
 
-  // 更新孩子节点的父节点id
-  auto *page = buffer_pool_manager->FetchPage(child_page_id);
-  if (page == nullptr)
-  {
-    throw Exception(EXCEPTION_TYPE_INDEX,
-                    "all page are pinned while CopyLastFrom");
-  }
-  auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
-  child->SetParentPageId(recipient->GetPageId());
+    recipient->CopyFirstFrom(pair, parent_index, buffer_pool_manager);
 
-  assert(child->GetParentPageId() == recipient->GetPageId());
-  buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+    // 更新孩子节点的父节点id
+    auto *page = buffer_pool_manager->FetchPage(child_page_id);
+    if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyLastFrom"); }
+    auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+    child->SetParentPageId(recipient->GetPageId());
+
+    assert(child->GetParentPageId() == recipient->GetPageId());
+    buffer_pool_manager->UnpinPage(child->GetPageId(), true);
 }
 
+/**
+ * @brief 
+ * @tparam KeyType 
+ * @tparam ValueType 
+ * @tparam KeyComparator 
+ * @param  pair             pair 是要贡献者的最后一个
+ * @param  parent_index     接收 node 在父节点中对应的 index
+ * @param  buffer_pool_managerdesc
+ */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::
-    CopyFirstFrom(const MappingType &pair, int parent_index,
-                  BufferPoolManager *buffer_pool_manager)
+void BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>::CopyFirstFrom(
+    const MappingType &pair, 
+    int parent_index,
+    BufferPoolManager *buffer_pool_manager)
 {
-    assert(GetSize() + 1 < GetMaxSize());
+    assert(GetValueSize() + 1 < GetMaxValueSize());
 
     auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
     if (page == nullptr) { throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CopyFirstFrom"); }
     auto parent = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());
 
-    auto key = parent->KeyAt(parent_index);
-
-    parent->SetKeyAt(parent_index, pair.first);
+    auto key = parent->KeyAt(parent_index);  // 备份一下
+    parent->SetKeyAt(parent_index, pair.first);  // 直接修改掉
 
     InsertNodeAfter(array[0].second, key, array[0].second);
     array[0].second = pair.second;

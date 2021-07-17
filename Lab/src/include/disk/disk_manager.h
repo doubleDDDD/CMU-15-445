@@ -14,6 +14,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "stack/stack.h"
 
 namespace cmudb {
 

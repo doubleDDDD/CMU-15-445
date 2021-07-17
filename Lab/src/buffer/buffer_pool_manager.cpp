@@ -109,10 +109,9 @@ Page* BufferPoolManager::FetchPage(page_id_t page_id)
 	}
 
 	assert(res->pin_count_ == 0);  /* free list中的page一定是没有ref的 */
-	if (res->is_dirty_) {
-		/* 脏页写回 */
-		disk_manager_->WritePage(res->page_id_, res->GetData());
-	}
+
+	/* 脏页写回 */
+	if (res->is_dirty_) { disk_manager_->WritePage(res->page_id_, res->GetData()); }
 
 	// 删一个 kv，再 insert 一个 kv
 	// delete the entry for old page in hash table
@@ -182,12 +181,14 @@ BufferPoolManager::FlushPage(page_id_t page_id)
 }
 
 /**
- * User should call this method for deleting a page. This routine will call
- * disk manager to deallocate the page. First, if page is found within page
- * table, buffer pool manager should be responsible for removing this entry out
- * of page table, resetting page metadata and adding back to free list. Second,
- * call disk manager's DeallocatePage() method to delete from disk file. If
- * the page is found within page table, but pin_count != 0, return false
+ * User should call this method for deleting a page. 
+ * This routine will call disk manager to deallocate the page. 
+ * First, if page is found within page table, buffer pool manager should be responsible for removing this entry out
+ * of page table, resetting page metadata and adding back to free list. 
+ * 
+ * Second, call disk manager's DeallocatePage() method to delete from disk file. 
+ * 
+ * If the page is found within page table, but pin_count != 0, return false
  */
 bool
 BufferPoolManager::DeletePage(page_id_t page_id)

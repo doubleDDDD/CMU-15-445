@@ -264,7 +264,8 @@ bool BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::Lookup(
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
 int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::RemoveAndDeleteRecord(
-    const KeyType &key, const KeyComparator &comparator)
+    const KeyType &key, 
+    const KeyComparator &comparator)
 {
     if (GetKeySize() == 0 || comparator(key, KeyAt(0)) < 0 || 
         comparator(key, KeyAt(GetKeySize() - 1)) > 0) { 
@@ -282,8 +283,8 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::RemoveAndDeleteRecord(
             memmove(
                 (void *)(array + mid), 
                 (void *)(array + mid + 1), 
-                static_cast<size_t>((GetSize() - mid - 1) * sizeof(MappingType)));
-            IncreaseSize(-1);
+                static_cast<size_t>((GetKeySize() - mid - 1) * sizeof(MappingType)));
+            IncreaseKeySize(-1);
             break;
         }
     }
@@ -298,26 +299,36 @@ int BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::RemoveAndDeleteRecord(
 /*
  * Remove all of key & value pairs from this page to "recipient" page, then
  * update next page id
+ * 
+ * 由于 kv 的删除而导致的合并。直接导致这个 node 的 GG
+ * 这里是叶子节点的 GG
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    MoveAllTo(BPlusTreeLeafPage *recipient, int, BufferPoolManager *)
+void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::MoveAllTo(
+    BPlusTreeLeafPage *recipient, 
+    int, 
+    BufferPoolManager *)
 {
-  recipient->CopyAllFrom(array, GetKeySize());
-  recipient->SetNextPageId(GetNextPageId());
+    recipient->CopyAllFrom(array, GetKeySize());
+    recipient->SetNextPageId(GetNextPageId());
 }
 
+/**
+ * @brief 叶子节点接收了另一个叶子节点的全部
+ * @tparam KeyType 
+ * @tparam ValueType 
+ * @tparam KeyComparator 
+ * @param  items            desc
+ * @param  size             desc
+ */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::
-    CopyAllFrom(MappingType *items, int size)
+void BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>::CopyAllFrom(
+    MappingType *items, int size)
 {
-  assert(GetKeySize() + size <= GetMaxSize());
-  auto start = GetKeySize();
-  for (int i = 0; i < size; ++i)
-  {
-    array[start + i] = *items++;
-  }
-  IncreaseSize(size);
+    assert(GetKeySize() + size <= GetMaxKeySize());
+    auto start = GetKeySize();
+    for (int i = 0; i < size; ++i) { array[start + i] = *items++; }
+    IncreaseKeySize(size);
 }
 
 /*****************************************************************************
