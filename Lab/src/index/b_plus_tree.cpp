@@ -586,7 +586,7 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::_CoalesceOrRedistribute(
             return true;
         } else { return false; }
     } else {
-        auto _sibling = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *>(sibling);
+        auto _sibling = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(sibling);
         if (_sibling->GetValueSize()-1 >= _sibling->GetMinValueSize()) {
             buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
             return true;
