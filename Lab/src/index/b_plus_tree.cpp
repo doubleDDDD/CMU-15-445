@@ -799,9 +799,6 @@ bool BPlusTree<KeyType, ValueType, KeyComparator>::CoalesceOrRedistribute(
                 Redistribute<N>(sibling, node, 0);  // move sibling's first to the end of node
             } else {
                 // 由右向左合并，这里调整一下
-
-                std::printf("here!\n\n");
-
                 value_index = parent->ValueIndex(sibling->GetPageId());
                 Coalesce<N>(node, sibling, parent, value_index, transaction);
             }

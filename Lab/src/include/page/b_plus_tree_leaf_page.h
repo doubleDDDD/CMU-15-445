@@ -68,12 +68,8 @@ public:
 
     // leaf node
     // helper function，这个要取决于 b+tree 的秩, 这里是叶子节点
-    int GetMaxKeySize() const {
-        // 秩为 order，则 key 的数量最大是 order-1, 不超过 M/2 的最大整数
-        // 即如果 秩=3，则 叶子节点最少 1个，最多 2 个
-        return GetOrder() - 1;
-    }
-    int GetMinKeySize() const { return GetOrder()/2; }
+    int GetMaxKeySize() const { return GetOrder() - 1; }
+    int GetMinKeySize() const { return (GetOrder()+1)/2-1; }
 
     // Debug
     std::string ToString(bool verbose = false) const;
