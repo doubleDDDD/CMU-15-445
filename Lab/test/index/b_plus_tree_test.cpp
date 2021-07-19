@@ -452,7 +452,7 @@ TEST(BPlusTreeTests, DeleteScale) {
     auto header_page = bpm->NewPage(page_id);
     (void) header_page;
 
-    int scale = 100;
+    int scale = 12;
     std::vector<int64_t> keys;
     for (int i = 0; i < scale; ++i) { keys.push_back(i + 1); }
 
@@ -489,10 +489,19 @@ TEST(BPlusTreeTests, DeleteScale) {
 
     EXPECT_EQ(current_key, keys.size() + 1);
 
+
+    tree.ToString(true);
+
+
+    std::printf("scale delete\n\n");
     // delete all
     for (auto key :keys) {
         index_key.SetFromInteger(key);
         tree.Remove(index_key, transaction);
+
+        std::printf("ready to str after remove\n");
+        tree.ToString(true);
+        std::printf("delete one key finish, key %ld has been deleted\n\n", key);
     }
 
     // check all value is in the tree
