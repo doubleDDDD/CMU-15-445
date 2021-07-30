@@ -60,8 +60,9 @@ int VtabCreate(sqlite3 *db, void *pAux, int argc, const char *const *argv,
     // parse arg[4](string that defines table index)
     Index *index = nullptr;
     if (argc > 4) {
-        // 如果大于4，则说明需要创建索引
+        // 如果大于4，则说明需要 为表 创建索引
         std::string index_string(argv[4]);
+        // 怪不得说索引就像是一个table是有名字的，这个 索引名 是user指定的
         index_string = index_string.substr(1, (index_string.size() - 2));
         // create index object, allocate memory space
         IndexMetadata *index_metadata = ParseIndexStatement(index_string, std::string(argv[2]), schema);
@@ -83,6 +84,15 @@ int VtabCreate(sqlite3 *db, void *pAux, int argc, const char *const *argv,
     return SQLITE_OK;
 }
 
+/**
+ * @brief 数据库的连接是打开一个已经创建好的表，即打开一个文件
+ * @param  db               desc
+ * @param  pAux             desc
+ * @param  argc             desc
+ * @param  argv             desc
+ * @param  ppVtab           desc
+ * @param  pzErr            desc
+ */
 int VtabConnect(sqlite3 *db, void *pAux, int argc, const char *const *argv,
                 sqlite3_vtab **ppVtab, char **pzErr) {
   assert(argc >= 4);

@@ -81,7 +81,8 @@ void DiskManager::WritePage(page_id_t page_id, const char *page_data) {
     * @brief 
     *   needs to flush to keep disk file in sync
     *   写db是需要自己主动刷磁盘的
-    *   flsush to disk: write + fsync= direct IO
+    *   flsush to disk: flush 主要作用是将 lib 库函数的缓存刷到内核
+    *   这个地方绝对没有直接采用 fsync，否则要日志何用，性能将没法看
     */
     db_io_.flush();
 }

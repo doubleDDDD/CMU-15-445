@@ -2,6 +2,8 @@
  * table_heap.h
  *
  * doubly-linked list of heap pages
+ * table heap 是表的组织形式，这个就是表啊，之前一直都没有很好的反应过来
+ * index 同样有 table 是一个 level 的
  */
 
 #pragma once
