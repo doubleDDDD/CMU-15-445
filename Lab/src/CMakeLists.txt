@@ -106,3 +106,10 @@ list(REMOVE_ITEM srcs ${sqlite_srcs})
 # 依赖于src下除sqlit外的所有cpp 代码生成动态库 libvtable.so 这个实际上就相当于是数据库的内核
 # sqlit起来之后，加载libvtable.so，之后的数据库操作就会由libvtable.so来接管，这个就可以学习数据库 后端引擎 的核心思想了
 add_library(vtable SHARED ${srcs})
+if(IS_LINUX)
+    if(BUILD_SHARED_LIBS)
+        target_link_libraries(vtable unwind unwind-x86_64)  # 只写库名字就ok，cmake自己知道库的定义规则，并且知道如何 find
+    endif()
+elseif(IS_MACOS AND BUILD_SHARED_LIBS)
+    set(CMAKE_SKIP_RPATH 0)
+endif()
