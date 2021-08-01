@@ -32,19 +32,19 @@ void Column::SetInlined() {
 }
 
 std::string Column::ToString() const {
-  std::ostringstream os;
+    std::ostringstream os;
 
-  os << "Column[" << column_name << ", " << Type::TypeIdToString(column_type)
-     << ", "
-     << "Offset:" << column_offset << ", ";
+    os << "Column[" << column_name << ", " << Type::TypeIdToString(column_type)
+        << ", "
+        << "Offset:" << column_offset << ", ";
 
-  if (is_inlined) {
-    os << "FixedLength:" << fixed_length;
-  } else {
-    os << "VarLength:" << variable_length;
-  }
-  os << "]";
-  return (os.str());
+    if (is_inlined) {
+        os << "FixedLength:" << fixed_length;
+    } else {
+        os << "VarLength:" << variable_length;
+    }
+    os << "]";
+    return (os.str());
 }
 
 } // namespace cmudb

@@ -29,14 +29,16 @@ SQLITE_EXTENSION_INIT1
  * @param  pzErr            desc
  * @return int @c 
  */
-int VtabCreate(sqlite3 *db, void *pAux, int argc, const char *const *argv,
-               sqlite3_vtab **ppVtab, char **pzErr) {
-  /**
-   * @brief 
-   * storage_engine_ is a global var
-   * in sqlite3_vtable_init 
-   * storage_engine_ = new StorageEngine(db_file_name);
-   */
+int VtabCreate(
+    sqlite3 *db, void *pAux, int argc, const char *const *argv,
+    sqlite3_vtab **ppVtab, char **pzErr) 
+{
+    /**
+    * @brief 
+    * storage_engine_ is a global var
+    * in sqlite3_vtable_init 
+    * storage_engine_ = new StorageEngine(db_file_name);
+    */
     BufferPoolManager *buffer_pool_manager = storage_engine_->buffer_pool_manager_;
     LockManager *lock_manager = storage_engine_->lock_manager_;
     LogManager *log_manager = storage_engine_->log_manager_;
@@ -45,27 +47,27 @@ int VtabCreate(sqlite3 *db, void *pAux, int argc, const char *const *argv,
     * @brief fetch header page from buffer pool
         这里有一个类型转换 page->HeaderPage
         HeaderPage存放表的元数据
-        这个page已经new过了，所以这里基本是一定可以fetch到page的
+        这个page已经 new 过了，所以这里基本是一定可以fetch到page的
     */
-    HeaderPage *header_page =
-        static_cast<HeaderPage *>(buffer_pool_manager->FetchPage(HEADER_PAGE_ID));
+    HeaderPage *header_page = static_cast<HeaderPage *>(buffer_pool_manager->FetchPage(HEADER_PAGE_ID));
 
     // the first three parameter:(1) module name (2) database name (3)table name
     assert(argc >= 4);
     // parse arg[3](string that defines table schema)
     std::string schema_string(argv[3]);
     schema_string = schema_string.substr(1, (schema_string.size() - 2));
-    Schema *schema = ParseCreateStatement(schema_string);
+    Schema *schema = ParseCreateStatement(schema_string);  // 根据字符串创建 schema 对象
 
     // parse arg[4](string that defines table index)
     Index *index = nullptr;
     if (argc > 4) {
         // 如果大于4，则说明需要 为表 创建索引
-        std::string index_string(argv[4]);
-        // 怪不得说索引就像是一个table是有名字的，这个 索引名 是user指定的
-        index_string = index_string.substr(1, (index_string.size() - 2));
+        // 正常的操作是在表的某一列（多列）上创建索引，且索引是有名字的
+        std::string index_string(argv[4]);  // 在哪些列上创建索引  (column1, column2) column name
+        index_string = index_string.substr(1, (index_string.size() - 2));  // 这个地方是为了把括号去掉
         // create index object, allocate memory space
         IndexMetadata *index_metadata = ParseIndexStatement(index_string, std::string(argv[2]), schema);
+        // 组合索引，B+tree也仅仅只有一个
         index = ConstructIndex(index_metadata, buffer_pool_manager);
     }
     // create table object, allocate memory space
@@ -85,7 +87,7 @@ int VtabCreate(sqlite3 *db, void *pAux, int argc, const char *const *argv,
 }
 
 /**
- * @brief 数据库的连接是打开一个已经创建好的表，即打开一个文件
+ * @brief
  * @param  db               desc
  * @param  pAux             desc
  * @param  argc             desc
@@ -93,49 +95,50 @@ int VtabCreate(sqlite3 *db, void *pAux, int argc, const char *const *argv,
  * @param  ppVtab           desc
  * @param  pzErr            desc
  */
-int VtabConnect(sqlite3 *db, void *pAux, int argc, const char *const *argv,
-                sqlite3_vtab **ppVtab, char **pzErr) {
-  assert(argc >= 4);
-  std::string schema_string(argv[3]);
-  // remove the very first and last character
-  schema_string = schema_string.substr(1, (schema_string.size() - 2));
-  // new virtual table object, allocate memory space
-  Schema *schema = ParseCreateStatement(schema_string);
+int VtabConnect(
+    sqlite3 *db, void *pAux, int argc, const char *const *argv,
+    sqlite3_vtab **ppVtab, char **pzErr) 
+{
+    assert(argc >= 4);
+    std::string schema_string(argv[3]);
+    // remove the very first and last character
+    schema_string = schema_string.substr(1, (schema_string.size() - 2));
+    // new virtual table object, allocate memory space
+    Schema *schema = ParseCreateStatement(schema_string);
 
-  BufferPoolManager *buffer_pool_manager =
-      storage_engine_->buffer_pool_manager_;
-  LockManager *lock_manager = storage_engine_->lock_manager_;
-  LogManager *log_manager = storage_engine_->log_manager_;
+    BufferPoolManager *buffer_pool_manager = storage_engine_->buffer_pool_manager_;
+    LockManager *lock_manager = storage_engine_->lock_manager_;
+    LogManager *log_manager = storage_engine_->log_manager_;
 
-  // Retrieve table root page info from header page
-  HeaderPage *header_page =
-      static_cast<HeaderPage *>(buffer_pool_manager->FetchPage(HEADER_PAGE_ID));
-  page_id_t table_root_id;
-  header_page->GetRootId(std::string(argv[2]), table_root_id);
-  // parse arg[4](string that defines table index)
-  Index *index = nullptr;
-  if (argc > 4) {
-    std::string index_string(argv[4]);
-    index_string = index_string.substr(1, (index_string.size() - 2));
-    // create index object, allocate memory space
-    IndexMetadata *index_metadata =
-        ParseIndexStatement(index_string, std::string(argv[2]), schema);
-    // Retrieve index root page info from header page
-    page_id_t index_root_id;
-    header_page->GetRootId(index_metadata->GetName(), index_root_id);
-    index = ConstructIndex(index_metadata, buffer_pool_manager, index_root_id);
-  }
-  VirtualTable *table =
-      new VirtualTable(schema, buffer_pool_manager, lock_manager, log_manager,
-                       index, table_root_id);
+    // Retrieve table root page info from header page
+    HeaderPage *header_page =
+        static_cast<HeaderPage *>(buffer_pool_manager->FetchPage(HEADER_PAGE_ID));
+    page_id_t table_root_id;
+    header_page->GetRootId(std::string(argv[2]), table_root_id);
 
-  // register virtual table within sqlite system
-  schema_string = "CREATE TABLE X(" + schema_string + ");";
-  assert(sqlite3_declare_vtab(db, schema_string.c_str()) == SQLITE_OK);
+    // parse arg[4](string that defines table index)
+    Index *index = nullptr;
+    if (argc > 4) {
+        std::string index_string(argv[4]);
+        index_string = index_string.substr(1, (index_string.size() - 2));
+        // create index object, allocate memory space
+        IndexMetadata *index_metadata = ParseIndexStatement(index_string, std::string(argv[2]), schema);
+        // Retrieve index root page info from header page
+        page_id_t index_root_id;
+        header_page->GetRootId(index_metadata->GetName(), index_root_id);
+        index = ConstructIndex(index_metadata, buffer_pool_manager, index_root_id);
+    }
 
-  *ppVtab = reinterpret_cast<sqlite3_vtab *>(table);
-  buffer_pool_manager->UnpinPage(HEADER_PAGE_ID, false);
-  return SQLITE_OK;
+    VirtualTable *table = new VirtualTable(
+        schema, buffer_pool_manager, lock_manager, log_manager, index, table_root_id);
+
+    // register virtual table within sqlite system
+    schema_string = "CREATE TABLE X(" + schema_string + ");";
+    assert(sqlite3_declare_vtab(db, schema_string.c_str()) == SQLITE_OK);
+
+    *ppVtab = reinterpret_cast<sqlite3_vtab *>(table);
+    buffer_pool_manager->UnpinPage(HEADER_PAGE_ID, false);
+    return SQLITE_OK;
 }
 
 /*
@@ -285,49 +288,52 @@ int VtabRowid(sqlite3_vtab_cursor *cur, sqlite3_int64 *pRowid) {
   return SQLITE_OK;
 }
 
-int VtabUpdate(sqlite3_vtab *pVTab, int argc, sqlite3_value **argv,
-               sqlite_int64 *pRowid) {
-  // LOG_DEBUG("VtabUpdate");
-  VirtualTable *table = reinterpret_cast<VirtualTable *>(pVTab);
-  // The single row with rowid equal to argv[0] is deleted
-  if (argc == 1) {
-    const RID rid(sqlite3_value_int64(argv[0]));
-    // delete entry from index
-    table->DeleteEntry(rid);
-    // delete tuple from table heap
-    table->DeleteTuple(rid);
-  }
-  // A new row is inserted with a rowid argv[1] and column values in argv[2] and
-  // following. If argv[1] is an SQL NULL, the a new unique rowid is generated
-  // automatically.
-  else if (argc > 1 && sqlite3_value_type(argv[0]) == SQLITE_NULL) {
-    Schema *schema = table->GetSchema();
-    Tuple tuple = ConstructTuple(schema, (argv + 2));
-    // insert into table heap
-    RID rid;
-    table->InsertTuple(tuple, rid);
-    // insert into index
-    table->InsertEntry(tuple, rid);
-  }
-  // The row with rowid argv[0] is updated with new values in argv[2] and
-  // following parameters.
-  else if (argc > 1 && sqlite3_value_type(argv[0]) != SQLITE_NULL) {
-    Schema *schema = table->GetSchema();
-    Tuple tuple = ConstructTuple(schema, (argv + 2));
-    RID rid(sqlite3_value_int64(argv[0]));
-    // for update, index always delete and insert
-    // because you have no clue key has been updated or not
-    table->DeleteEntry(rid);
-    // if true, then update succeed, rid keep the same
-    // else, delete & insert
-    if (table->UpdateTuple(tuple, rid) == false) {
-      table->DeleteTuple(rid);
-      // rid should be different
-      table->InsertTuple(tuple, rid);
+int VtabUpdate(
+    sqlite3_vtab *pVTab, int argc, sqlite3_value **argv,
+    sqlite_int64 *pRowid) 
+{
+    // LOG_DEBUG("VtabUpdate");
+    VirtualTable *table = reinterpret_cast<VirtualTable *>(pVTab);
+
+    // The single row with rowid equal to argv[0] is deleted
+    if (argc == 1) {
+        const RID rid(sqlite3_value_int64(argv[0]));
+        // delete entry from index
+        table->DeleteEntry(rid);
+        // delete tuple from table heap
+        table->DeleteTuple(rid);
     }
-    table->InsertEntry(tuple, rid);
-  }
-  return SQLITE_OK;
+    // A new row is inserted with a rowid argv[1] and column values in argv[2] and
+    // following. If argv[1] is an SQL NULL, the a new unique rowid is generated
+    // automatically.
+    else if (argc > 1 && sqlite3_value_type(argv[0]) == SQLITE_NULL) {
+        Schema *schema = table->GetSchema();
+        Tuple tuple = ConstructTuple(schema, (argv + 2));
+        // insert into table heap
+        RID rid;
+        table->InsertTuple(tuple, rid);
+        // insert into index
+        table->InsertEntry(tuple, rid);
+    }
+    // The row with rowid argv[0] is updated with new values in argv[2] and
+    // following parameters.
+    else if (argc > 1 && sqlite3_value_type(argv[0]) != SQLITE_NULL) {
+        Schema *schema = table->GetSchema();
+        Tuple tuple = ConstructTuple(schema, (argv + 2));
+        RID rid(sqlite3_value_int64(argv[0]));
+        // for update, index always delete and insert
+        // because you have no clue key has been updated or not
+        table->DeleteEntry(rid);
+        // if true, then update succeed, rid keep the same
+        // else, delete & insert
+        if (table->UpdateTuple(tuple, rid) == false) {
+            table->DeleteTuple(rid);
+            // rid should be different
+            table->InsertTuple(tuple, rid);
+        }
+        table->InsertEntry(tuple, rid);
+    }
+    return SQLITE_OK;
 }
 
 int VtabBegin(sqlite3_vtab *pVTab) {
@@ -473,37 +479,49 @@ Schema *ParseCreateStatement(const std::string &sql_base) {
     return schema;
 }
 
-IndexMetadata *ParseIndexStatement(std::string &sql,
-                                   const std::string &table_name,
-                                   Schema *schema) {
-  std::string::size_type n;
-  std::string index_name;
-  std::vector<int> key_attrs;
-  int column_id = -1;
-  // prepocess, transform sql string into lower case
-  std::transform(sql.begin(), sql.end(), sql.begin(), ::tolower);
-  n = sql.find_first_of(' ');
-  // NOTE: must use whitespace to seperate index name and indexed column names
-  assert(n != std::string::npos);
-  index_name = sql.substr(0, n);
-  sql = sql.substr(n + 1);
+/**
+ * @brief 
+ * @param  sql              desc 在哪些列上创建索引 （column1,column2,...）
+ * @param  table_name       desc
+ * @param  schema           desc 整个 table 的 schema
+ * @return IndexMetadata* @c 
+ */
+IndexMetadata *ParseIndexStatement(
+    std::string &sql,
+    const std::string &table_name,
+    Schema *schema) 
+{
+    std::string::size_type n;
+    std::string index_name;  // 索引名就是一个组合 column1column2...
+    std::vector<int> key_attrs;
+    int column_id = -1;
+   
+    // prepocess, transform sql string into lower case，小写
+    std::transform(sql.begin(), sql.end(), sql.begin(), ::tolower);
+    n = sql.find_first_of(' ');
+    // NOTE: must use whitespace to seperate index name and indexed column names
+    assert(n != std::string::npos);
+    index_name = sql.substr(0, n);
+    sql = sql.substr(n + 1);
 
-  std::vector<std::string> tok = StringUtility::Split(sql, ',');
-  // iterate through returned result
-  for (std::string &t : tok) {
-    StringUtility::Trim(t);
-    column_id = schema->GetColumnID(t);
-    if (column_id != -1)
-      key_attrs.emplace_back(column_id);
-  }
-  if ((int)key_attrs.size() > schema->GetColumnCount())
-    throw Exception(EXCEPTION_TYPE_INDEX, "can't create index, format error");
+    std::vector<std::string> tok = StringUtility::Split(sql, ',');
+    // iterate through returned result
+    // 组合索引，需要check都要在哪些列上创建索引
+    for (std::string &t : tok) {
+        StringUtility::Trim(t);
+        column_id = schema->GetColumnID(t);
+        if (column_id != -1)
+        key_attrs.emplace_back(column_id);
+    }
+    if ((int)key_attrs.size() > schema->GetColumnCount())
+        throw Exception(EXCEPTION_TYPE_INDEX, "can't create index, format error");
 
-  IndexMetadata *metadata =
-      new IndexMetadata(index_name, table_name, schema, key_attrs);
+    // 需要在哪些列上创建组合索引
+    IndexMetadata *metadata =
+        new IndexMetadata(index_name, table_name, schema, key_attrs);
 
-  // LOG_DEBUG("%s", metadata->ToString().c_str());
-  return metadata;
+    // LOG_DEBUG("%s", metadata->ToString().c_str());
+    return metadata;
 }
 
 Tuple ConstructTuple(Schema *schema, sqlite3_value **argv) {
@@ -542,31 +560,33 @@ Tuple ConstructTuple(Schema *schema, sqlite3_value **argv) {
 }
 
 // serve the functionality of index factory
-Index *ConstructIndex(IndexMetadata *metadata,
-                      BufferPoolManager *buffer_pool_manager,
-                      page_id_t root_id) {
-  // The size of the key in bytes
-  Schema *key_schema = metadata->GetKeySchema();
-  int key_size = key_schema->GetLength();
-  // for each varchar attribute, we assume the largest size is 16 bytes
-  key_size += 16 * key_schema->GetUnlinedColumnCount();
+Index *ConstructIndex(
+    IndexMetadata *metadata,
+    BufferPoolManager *buffer_pool_manager,
+    page_id_t root_id) 
+{
+    // The size of the key in bytes
+    Schema *key_schema = metadata->GetKeySchema();  // table schema 的子集
+    int key_size = key_schema->GetLength();
+    // for each varchar attribute, we assume the largest size is 16 bytes
+    key_size += 16 * key_schema->GetUnlinedColumnCount();
 
-  if (key_size <= 4) {
-    return new BPlusTreeIndex<GenericKey<4>, RID, GenericComparator<4>>(
-        metadata, buffer_pool_manager, root_id);
-  } else if (key_size <= 8) {
-    return new BPlusTreeIndex<GenericKey<8>, RID, GenericComparator<8>>(
-        metadata, buffer_pool_manager, root_id);
-  } else if (key_size <= 16) {
-    return new BPlusTreeIndex<GenericKey<16>, RID, GenericComparator<16>>(
-        metadata, buffer_pool_manager, root_id);
-  } else if (key_size <= 32) {
-    return new BPlusTreeIndex<GenericKey<32>, RID, GenericComparator<32>>(
-        metadata, buffer_pool_manager, root_id);
-  } else {
-    return new BPlusTreeIndex<GenericKey<64>, RID, GenericComparator<64>>(
-        metadata, buffer_pool_manager, root_id);
-  }
+    if (key_size <= 4) {
+        return new BPlusTreeIndex<GenericKey<4>, RID, GenericComparator<4>>(
+            metadata, buffer_pool_manager, root_id);
+    } else if (key_size <= 8) {
+        return new BPlusTreeIndex<GenericKey<8>, RID, GenericComparator<8>>(
+            metadata, buffer_pool_manager, root_id);
+    } else if (key_size <= 16) {
+        return new BPlusTreeIndex<GenericKey<16>, RID, GenericComparator<16>>(
+            metadata, buffer_pool_manager, root_id);
+    } else if (key_size <= 32) {
+        return new BPlusTreeIndex<GenericKey<32>, RID, GenericComparator<32>>(
+            metadata, buffer_pool_manager, root_id);
+    } else {
+        return new BPlusTreeIndex<GenericKey<64>, RID, GenericComparator<64>>(
+            metadata, buffer_pool_manager, root_id);
+    }
 }
 
 Transaction *GetTransaction() { return global_transaction_; }

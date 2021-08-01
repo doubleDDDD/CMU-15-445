@@ -10,55 +10,58 @@
 
 namespace cmudb {
 
+/**
+ * @brief begin 一个事务
+ * @return Transaction* @c 
+ */
 Transaction *TransactionManager::Begin() {
-  Transaction *txn = new Transaction(next_txn_id_++);
+    Transaction *txn = new Transaction(next_txn_id_++);
 
-  if (ENABLE_LOGGING) {
-    // TODO: write log and update transaction's prev_lsn here
-    LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::BEGIN);
-    txn->SetPrevLSN(log_manager_->AppendLogRecord(log));
-  }
+    // 可以看到事务的开始会打一个 op log，即 begin log
+    if (ENABLE_LOGGING) {
+        // TODO: write log and update transaction's prev_lsn here
+        LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::BEGIN);
+        txn->SetPrevLSN(log_manager_->AppendLogRecord(log));
+    }
 
-  return txn;
+    return txn;
 }
 
 void TransactionManager::Commit(Transaction *txn) {
-  txn->SetState(TransactionState::COMMITTED);
-  // truly delete before commit
-  auto write_set = txn->GetWriteSet();
-  while (!write_set->empty()) {
-    auto &item = write_set->back();
-    auto table = item.table_;
-    if (item.wtype_ == WType::DELETE) {
-      // this also release the lock when holding the page latch
-      table->ApplyDelete(item.rid_, txn);
+    txn->SetState(TransactionState::COMMITTED);
+    // truly delete before commit
+    auto write_set = txn->GetWriteSet();
+    while (!write_set->empty()) {
+        auto &item = write_set->back();
+        auto table = item.table_;
+        if (item.wtype_ == WType::DELETE) {
+            // this also release the lock when holding the page latch
+            table->ApplyDelete(item.rid_, txn);
+        }
+        write_set->pop_back();
     }
-    write_set->pop_back();
-  }
-  write_set->clear();
+    write_set->clear();
 
-  if (ENABLE_LOGGING) {
-    // TODO: write log and update transaction's prev_lsn here
-    LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::COMMIT);
-    txn->SetPrevLSN(log_manager_->AppendLogRecord(log));
+    if (ENABLE_LOGGING) {
+        // TODO: write log and update transaction's prev_lsn here
+        LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::COMMIT);
+        txn->SetPrevLSN(log_manager_->AppendLogRecord(log));
 
-    // ???
-    while(txn->GetPrevLSN() > log_manager_->GetPersistentLSN())
-    {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // ???
+        while(txn->GetPrevLSN() > log_manager_->GetPersistentLSN()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
-  }
 
-  // release all the lock
-  std::unordered_set<RID> lock_set;
-  for (auto item : *txn->GetSharedLockSet())
-    lock_set.emplace(item);
-  for (auto item : *txn->GetExclusiveLockSet())
-    lock_set.emplace(item);
-  // release all the lock
-  for (auto locked_rid : lock_set) {
-    lock_manager_->Unlock(txn, locked_rid);
-  }
+    // release all the lock
+    std::unordered_set<RID> lock_set;
+    for (auto item : *txn->GetSharedLockSet()) { lock_set.emplace(item); }
+    for (auto item : *txn->GetExclusiveLockSet()) { lock_set.emplace(item); }
+
+    // release all the lock
+    for (auto locked_rid : lock_set) {
+        lock_manager_->Unlock(txn, locked_rid);
+    }
 }
 
 void TransactionManager::Abort(Transaction *txn) {

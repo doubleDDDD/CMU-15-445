@@ -29,7 +29,7 @@ public:
     void Abort(Transaction *txn);
 
 private:
-    std::atomic<txn_id_t> next_txn_id_;
+    std::atomic<txn_id_t> next_txn_id_;  /* 有一个原子改变的 element，实际是个全局的 事务id */
     LockManager *lock_manager_;
     LogManager *log_manager_;
 };

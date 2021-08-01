@@ -38,7 +38,7 @@
 
 namespace cmudb {
 
-// log record type
+// op log record type
 enum class LogRecordType {
     INVALID = 0,
     INSERT,

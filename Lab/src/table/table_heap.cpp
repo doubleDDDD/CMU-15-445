@@ -37,8 +37,10 @@ TableHeap::TableHeap(BufferPoolManager *buffer_pool_manager,
 /**
  * @brief TableHeap对应一个table
  * 记录了一个table中的第一个page的id
+ * 事务本身的失败是事务回滚的一个重要原因，事务出问题返回false。不出问题正常返回 true
  */
-bool TableHeap::InsertTuple(const Tuple &tuple, RID &rid, Transaction *txn) {
+bool TableHeap::InsertTuple(const Tuple &tuple, RID &rid, Transaction *txn) 
+{
     if (tuple.size_ + 32 > PAGE_SIZE) {
         // larger than one page size
         txn->SetState(TransactionState::ABORTED);

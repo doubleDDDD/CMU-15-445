@@ -66,57 +66,58 @@ TablePage::SetNextPageId(page_id_t next_page_id) {
 /**
  * Tuple related
  */
-bool TablePage::InsertTuple(const Tuple &tuple, RID &rid, Transaction *txn,
-                            LockManager *lock_manager,
-                            LogManager *log_manager) {
-  assert(tuple.size_ > 0);
-  if (GetFreeSpaceSize() < tuple.size_) {
-    return false; // not enough space
-  }
-
-  // try to reuse a free slot first
-  int i;
-  for (i = 0; i < GetTupleCount(); ++i) {
-    rid.Set(GetPageId(), i);
-    if (GetTupleSize(i) == 0) { // empty slot
-      if (ENABLE_LOGGING) {
-        assert(txn->GetSharedLockSet()->find(rid) ==
-            txn->GetSharedLockSet()->end() &&
-            txn->GetExclusiveLockSet()->find(rid) ==
-                txn->GetExclusiveLockSet()->end());
-      }
-      break;
+bool TablePage::InsertTuple(
+    const Tuple &tuple, RID &rid, Transaction *txn,
+    LockManager *lock_manager,
+    LogManager *log_manager) 
+{
+    assert(tuple.size_ > 0);
+    if (GetFreeSpaceSize() < tuple.size_) {
+        return false; // not enough space
     }
-  }
 
-  // no free slot left
-  if (i == GetTupleCount() && GetFreeSpaceSize() < tuple.size_ + 8) {
-    return false; // not enough space
-  }
+    // try to reuse a free slot first
+    int i;
+    for (i = 0; i < GetTupleCount(); ++i) {
+        rid.Set(GetPageId(), i);
+        if (GetTupleSize(i) == 0) { // empty slot
+            if (ENABLE_LOGGING) {
+                assert(txn->GetSharedLockSet()->find(rid) ==
+                    txn->GetSharedLockSet()->end() &&
+                    txn->GetExclusiveLockSet()->find(rid) ==
+                        txn->GetExclusiveLockSet()->end());
+            }
+            break;
+        }
+    }
 
-  SetFreeSpacePointer(GetFreeSpacePointer() -
-      tuple.size_); // update free space pointer first
-  memcpy(GetData() + GetFreeSpacePointer(), tuple.data_, tuple.size_);
-  SetTupleOffset(i, GetFreeSpacePointer());
-  SetTupleSize(i, tuple.size_);
-  if (i == GetTupleCount()) {
-    rid.Set(GetPageId(), i);
-    SetTupleCount(GetTupleCount() + 1);
-  }
-  // write the log after set rid
-  if (ENABLE_LOGGING) {
-    // acquire the exclusive lock
-    assert(lock_manager->LockExclusive(txn, rid.Get()));
-    // TODO: add your logging logic here
-    // 创建一条插入日志并添加
-    LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(),
-                    LogRecordType::INSERT, rid, tuple);
-    lsn_t lsn = log_manager->AppendLogRecord(log);
-    txn->SetPrevLSN(lsn);
-    SetLSN(lsn);
-  }
-  //LOG_DEBUG("Tuple inserted");
-  return true;
+    // no free slot left
+    if (i == GetTupleCount() && GetFreeSpaceSize() < tuple.size_ + 8) {
+        return false; // not enough space
+    }
+
+    SetFreeSpacePointer(GetFreeSpacePointer() - tuple.size_); // update free space pointer first
+    memcpy(GetData() + GetFreeSpacePointer(), tuple.data_, tuple.size_);
+    SetTupleOffset(i, GetFreeSpacePointer());
+    SetTupleSize(i, tuple.size_);
+    if (i == GetTupleCount()) {
+        rid.Set(GetPageId(), i);
+        SetTupleCount(GetTupleCount() + 1);
+    }
+
+    // write the log after set rid，这个是妥妥的 op log
+    if (ENABLE_LOGGING) {
+        // acquire the exclusive lock
+        assert(lock_manager->LockExclusive(txn, rid.Get()));
+        // TODO: add your logging logic here
+        // 创建一条插入日志并添加
+        LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::INSERT, rid, tuple);
+        lsn_t lsn = log_manager->AppendLogRecord(log);
+        txn->SetPrevLSN(lsn);
+        SetLSN(lsn);
+    }
+    //LOG_DEBUG("Tuple inserted");
+    return true;
 }
 
 /*

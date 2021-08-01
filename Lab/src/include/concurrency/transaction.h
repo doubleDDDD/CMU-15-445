@@ -67,29 +67,17 @@ public:
     // Mutators and Accessors
     //===--------------------------------------------------------------------===//
     inline std::thread::id GetThreadId() const { return thread_id_; }
-
     inline txn_id_t GetTransactionId() const { return txn_id_; }
-
     inline std::shared_ptr<std::deque<WriteRecord>> GetWriteSet() { return write_set_; }
-
     inline std::shared_ptr<std::deque<Page *>> GetPageSet() { return page_set_; }
-
     inline void AddIntoPageSet(Page *page) { page_set_->push_back(page); }
-
     inline std::shared_ptr<std::unordered_set<page_id_t>> GetDeletedPageSet() { return deleted_page_set_; }
-
     inline void AddIntoDeletedPageSet(page_id_t page_id) { deleted_page_set_->insert(page_id); }
-
     inline std::shared_ptr<std::unordered_set<RID>> GetSharedLockSet() { return shared_lock_set_; }
-
     inline std::shared_ptr<std::unordered_set<RID>> GetExclusiveLockSet() { return exclusive_lock_set_; }
-
     inline TransactionState GetState() { return state_; }
-
     inline void SetState(TransactionState state) { state_ = state; }
-
     inline lsn_t GetPrevLSN() { return prev_lsn_; }
-
     inline void SetPrevLSN(lsn_t prev_lsn) { prev_lsn_ = prev_lsn; }
 
 private:
@@ -100,7 +88,7 @@ private:
     // transaction id
     txn_id_t txn_id_;
 
-    // Below are used by transaction, undo set
+    // Below are used by transaction, undo set, undo 用于回滚操作，redo 用于重新操作
     std::shared_ptr<std::deque<WriteRecord>> write_set_;
     // prev lsn
     lsn_t prev_lsn_;

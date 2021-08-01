@@ -62,38 +62,37 @@ int VtabBegin(sqlite3_vtab *pVTab);
 // storage engine
 class StorageEngine {
 public:
-  StorageEngine(std::string db_file_name) {
-    ENABLE_LOGGING = false;
+    StorageEngine(std::string db_file_name) {
+        ENABLE_LOGGING = false;
 
-    // storage related
-    disk_manager_ = new DiskManager(db_file_name);
+        // storage related
+        disk_manager_ = new DiskManager(db_file_name);
 
-    // log related
-    log_manager_ = new LogManager(disk_manager_);
+        // log related
+        log_manager_ = new LogManager(disk_manager_);
 
-    buffer_pool_manager_ =
-        new BufferPoolManager(BUFFER_POOL_SIZE, disk_manager_, log_manager_);
+        buffer_pool_manager_ =
+            new BufferPoolManager(BUFFER_POOL_SIZE, disk_manager_, log_manager_);
 
-    // txn related
-    lock_manager_ = new LockManager(true); // S2PL
-    transaction_manager_ = new TransactionManager(lock_manager_, log_manager_);
-  }
+        // txn related
+        lock_manager_ = new LockManager(true); // S2PL
+        transaction_manager_ = new TransactionManager(lock_manager_, log_manager_);
+    }
 
-  ~StorageEngine() {
-    if (ENABLE_LOGGING)
-      log_manager_->StopFlushThread();
-    delete disk_manager_;
-    delete buffer_pool_manager_;
-    delete log_manager_;
-    delete lock_manager_;
-    delete transaction_manager_;
-  }
+    ~StorageEngine() {
+        if (ENABLE_LOGGING) { log_manager_->StopFlushThread(); }
+        delete disk_manager_;
+        delete buffer_pool_manager_;
+        delete log_manager_;
+        delete lock_manager_;
+        delete transaction_manager_;
+    }
 
-  DiskManager *disk_manager_;
-  BufferPoolManager *buffer_pool_manager_;
-  LockManager *lock_manager_;
-  TransactionManager *transaction_manager_;
-  LogManager *log_manager_;
+    DiskManager *disk_manager_;
+    BufferPoolManager *buffer_pool_manager_;
+    LockManager *lock_manager_;
+    TransactionManager *transaction_manager_;
+    LogManager *log_manager_;
 };
 
 StorageEngine *storage_engine_;
@@ -107,16 +106,16 @@ public:
     VirtualTable(Schema *schema, BufferPoolManager *buffer_pool_manager,
                 LockManager *lock_manager, LogManager *log_manager, Index *index,
                 page_id_t first_page_id = INVALID_PAGE_ID)
-        : schema_(schema), index_(index) {
+        : schema_(schema), index_(index) 
+    {
         if (first_page_id != INVALID_PAGE_ID) {
             // reopen an exist table
-            table_heap_ = new TableHeap(buffer_pool_manager, lock_manager,
-                                      log_manager, first_page_id);
+            table_heap_ = new TableHeap(buffer_pool_manager, lock_manager, log_manager, first_page_id);
         } else {
             // create table for the first time
+            // 创建表需要起一个事务
             Transaction *txn = storage_engine_->transaction_manager_->Begin();
-            table_heap_ =
-                new TableHeap(buffer_pool_manager, lock_manager, log_manager, txn);
+            table_heap_ = new TableHeap(buffer_pool_manager, lock_manager, log_manager, txn);
             storage_engine_->transaction_manager_->Commit(txn);
         }
     }
@@ -133,14 +132,18 @@ public:
     }
 
     // insert into index
+    // 所以说索引会降低 写 的速度
     inline void InsertEntry(const Tuple &tuple, const RID &rid) {
-        if (index_ == nullptr)
-        return;
-        // construct indexed key tuple
+        if (index_ == nullptr) { return; }
+        // construct indexed key-tuple
         std::vector<Value> key_values;
 
-        for (auto &i : index_->GetKeyAttrs())
-        key_values.push_back(tuple.GetValue(schema_, i));
+        // 组合索引，其中会把被组合index的值 insert into vector 以整合在一起
+        // 索引的这个 v 就直接就是值了
+        for (auto &i : index_->GetKeyAttrs()) { 
+            key_values.push_back(tuple.GetValue(schema_, i)); 
+        }
+
         Tuple key(key_values, index_->GetKeySchema());
         index_->InsertEntry(key, rid, GetTransaction());
     }
@@ -151,17 +154,17 @@ public:
         return table_heap_->MarkDelete(rid, GetTransaction());
     }
 
-    // delete from index
+    // delete from index，删除索引
     inline void DeleteEntry(const RID &rid) {
-        if (index_ == nullptr)
-        return;
+        if (index_ == nullptr) { return; }
         Tuple deleted_tuple(rid);
         table_heap_->GetTuple(rid, deleted_tuple, GetTransaction());
         // construct indexed key tuple
         std::vector<Value> key_values;
 
-        for (auto &i : index_->GetKeyAttrs())
-        key_values.push_back(deleted_tuple.GetValue(schema_, i));
+        for (auto &i : index_->GetKeyAttrs()) { 
+            key_values.push_back(deleted_tuple.GetValue(schema_, i)); 
+        }
         Tuple key(key_values, index_->GetKeySchema());
         index_->DeleteEntry(key, GetTransaction());
     }
@@ -194,74 +197,81 @@ private:
     Index *index_ = nullptr;
 };
 
+
+
+
+
+
 class Cursor {
 public:
-  Cursor(VirtualTable *virtual_table)
-      : table_iterator_(virtual_table->begin()), virtual_table_(virtual_table) {
-  }
-
-  inline void SetScanFlag(bool is_index_scan) {
-    is_index_scan_ = is_index_scan;
-  }
-
-  inline bool IsIndexScan() { return is_index_scan_; }
-
-  inline VirtualTable *GetVirtualTable() { return virtual_table_; }
-
-  inline Schema *GetKeySchema() {
-    return virtual_table_->index_->GetKeySchema();
-  }
-  // return rid at which cursor is currently pointed
-  inline int64_t GetCurrentRid() {
-    if (is_index_scan_)
-      return results[offset_].Get();
-    else
-      return (*table_iterator_).GetRid().Get();
-  }
-
-  // return tuple at which cursor is currently pointed
-  inline Value GetCurrentValue(Schema *schema, int column) {
-    if (is_index_scan_) {
-      RID rid = results[offset_];
-      Tuple tuple(rid);
-      virtual_table_->table_heap_->GetTuple(rid, tuple, GetTransaction());
-      return tuple.GetValue(schema, column);
-    } else {
-      return table_iterator_->GetValue(schema, column);
+    Cursor(VirtualTable *virtual_table)
+        : table_iterator_(virtual_table->begin()), virtual_table_(virtual_table) {
     }
-  }
 
-  // move cursor up to next
-  Cursor &operator++() {
-    if (is_index_scan_)
-      ++offset_;
-    else
-      ++table_iterator_;
-    return *this;
-  }
-  // is end of cursor(no more tuple)
-  inline bool isEof() {
-    if (is_index_scan_)
-      return offset_ == static_cast<int>(results.size());
-    else
-      return table_iterator_ == virtual_table_->end();
-  }
+    inline void SetScanFlag(bool is_index_scan) {
+        is_index_scan_ = is_index_scan;
+    }
 
-  // wrapper around poit scan methods
-  inline void ScanKey(const Tuple &key) {
-    virtual_table_->index_->ScanKey(key, results);
-  }
+    inline bool IsIndexScan() { return is_index_scan_; }
+
+    inline VirtualTable *GetVirtualTable() { return virtual_table_; }
+
+    inline Schema *GetKeySchema() {
+        return virtual_table_->index_->GetKeySchema();
+    }
+
+    // return rid at which cursor is currently pointed
+    inline int64_t GetCurrentRid() {
+        if (is_index_scan_)
+            return results[offset_].Get();
+        else
+            return (*table_iterator_).GetRid().Get();
+    }
+
+    // return tuple at which cursor is currently pointed
+    inline Value GetCurrentValue(Schema *schema, int column) {
+        if (is_index_scan_) {
+            RID rid = results[offset_];
+            Tuple tuple(rid);
+            virtual_table_->table_heap_->GetTuple(rid, tuple, GetTransaction());
+            return tuple.GetValue(schema, column);
+        } else {
+            return table_iterator_->GetValue(schema, column);
+        }
+    }
+
+    // move cursor up to next
+    Cursor &operator++() {
+        if (is_index_scan_)
+        ++offset_;
+        else
+        ++table_iterator_;
+        return *this;
+    }
+
+    // is end of cursor(no more tuple)
+    inline bool isEof() {
+        if (is_index_scan_)
+        return offset_ == static_cast<int>(results.size());
+        else
+        return table_iterator_ == virtual_table_->end();
+    }
+
+    // wrapper around poit scan methods
+    inline void ScanKey(const Tuple &key) {
+        virtual_table_->index_->ScanKey(key, results);
+    }
 
 private:
-  sqlite3_vtab_cursor base_; /* Base class - must be first */
-  // for index scan
-  std::vector<RID> results;
-  int offset_ = 0;
-  // for sequential scan
-  TableIterator table_iterator_;
-  // flag to indicate which scan method is currently used
-  bool is_index_scan_ = false;
-  VirtualTable *virtual_table_;
+    sqlite3_vtab_cursor base_; /* Base class - must be first */
+    // for index scan
+    std::vector<RID> results;
+    int offset_ = 0;
+    // for sequential scan
+    TableIterator table_iterator_;
+    // flag to indicate which scan method is currently used
+    bool is_index_scan_ = false;
+    VirtualTable *virtual_table_;
 }; // namespace cmudb
 
 } // namespace cmudb
