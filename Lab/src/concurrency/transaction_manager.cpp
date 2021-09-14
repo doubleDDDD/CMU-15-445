@@ -47,7 +47,9 @@ void TransactionManager::Commit(Transaction *txn) {
         LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::COMMIT);
         txn->SetPrevLSN(log_manager_->AppendLogRecord(log));
 
-        // ???
+        // A txnis not considered committed until allits log records have been written to stable storage
+        // Make sure that all log records are flushed before it returns an acknowledgement to application
+        // 事务的提交确实意味着持久化的完成，这里会卡着不返回
         while(txn->GetPrevLSN() > log_manager_->GetPersistentLSN()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
