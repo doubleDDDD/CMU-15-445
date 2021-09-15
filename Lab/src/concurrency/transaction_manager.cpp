@@ -69,6 +69,7 @@ void TransactionManager::Commit(Transaction *txn) {
 void TransactionManager::Abort(Transaction *txn) {
   txn->SetState(TransactionState::ABORTED);
   // rollback before releasing lock
+  // 除去log中的数据，原地更新的数据全部原地回滚
   auto write_set = txn->GetWriteSet();
   while (!write_set->empty()) {
     auto &item = write_set->back();
@@ -91,6 +92,7 @@ void TransactionManager::Abort(Transaction *txn) {
     // TODO: write log and update transaction's prev_lsn here
     LogRecord log(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::ABORT);
     txn->SetPrevLSN(log_manager_->AppendLogRecord(log));
+    // abort的返回也意味着持久化的完成
     while(txn->GetPrevLSN() > log_manager_->GetPersistentLSN())
     {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));

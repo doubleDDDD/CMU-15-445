@@ -57,9 +57,9 @@ public:
     // also remember to change constructor accordingly
 
     // atomic counter, record the next log sequence number
-    std::atomic<lsn_t> next_lsn_;
+    std::atomic<lsn_t> next_lsn_;  // 全局唯一自增，理解为由系统维护
     // log records before & include persistent_lsn_ have been written to disk
-    std::atomic<lsn_t> persistent_lsn_;
+    std::atomic<lsn_t> persistent_lsn_;  // 全局唯一自增，理解为由系统维护
     // log buffer related
     char *log_buffer_;
     char *flush_buffer_;

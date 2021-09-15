@@ -159,7 +159,7 @@ private:
 
     // case2: for insert operation
     RID insert_rid_;
-    Tuple insert_tuple_;  // 如果系统发生奔溃，上一个 checkpoint 之后需要依赖这个做 redo，不确定这个数能直接落盘
+    Tuple insert_tuple_;  // 如果系统发生崩溃，上一个 checkpoint 之后需要依赖这个做 redo，不确定这个数能直接落盘
 
     // case3: for update operation
     RID update_rid_;

@@ -296,6 +296,7 @@ int VtabUpdate(
     VirtualTable *table = reinterpret_cast<VirtualTable *>(pVTab);
 
     // The single row with rowid equal to argv[0] is deleted
+    // 删除单行操作
     if (argc == 1) {
         const RID rid(sqlite3_value_int64(argv[0]));
         // delete entry from index

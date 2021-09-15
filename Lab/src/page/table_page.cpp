@@ -22,6 +22,8 @@ TablePage::Init(
      * 4 字节的 unsigned int 4G 左右的大小，一个page 4KB算的话，一个文件最大16GB左右
      *  1 << 32 右边32个0
      * 所有的page是用list来组织的
+     * 第二个四字节是page的LSN
+     *      The LSNof the most recent update to that page
      */
     memcpy(GetData(), &page_id, 4); // set page_id
     if (ENABLE_LOGGING) {
