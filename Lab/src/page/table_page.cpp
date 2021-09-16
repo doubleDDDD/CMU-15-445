@@ -217,8 +217,10 @@ bool TablePage::UpdateTuple(const Tuple &new_tuple, Tuple &old_tuple,
 
   if (ENABLE_LOGGING) {
     // acquire exclusive lock
+    // 实际上就是写操作
     // if has shared lock
     if (txn->GetSharedLockSet()->find(rid) != txn->GetSharedLockSet()->end()) {
+        // 在集合中，end返回的是最后的迭代器，find一直没有找到，最后就会到迭代器
       if (!lock_manager->LockUpgrade(txn, rid))
         return false;
     } else if (txn->GetExclusiveLockSet()->find(rid) ==

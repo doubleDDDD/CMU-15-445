@@ -295,6 +295,8 @@ int VtabUpdate(
     // LOG_DEBUG("VtabUpdate");
     VirtualTable *table = reinterpret_cast<VirtualTable *>(pVTab);
 
+    // RID帮忙索引一个tuple所在的pageid与slotid
+
     // The single row with rowid equal to argv[0] is deleted
     // 删除单行操作
     if (argc == 1) {
@@ -307,6 +309,7 @@ int VtabUpdate(
     // A new row is inserted with a rowid argv[1] and column values in argv[2] and
     // following. If argv[1] is an SQL NULL, the a new unique rowid is generated
     // automatically.
+    // 增加新行
     else if (argc > 1 && sqlite3_value_type(argv[0]) == SQLITE_NULL) {
         Schema *schema = table->GetSchema();
         Tuple tuple = ConstructTuple(schema, (argv + 2));

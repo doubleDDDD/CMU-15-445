@@ -83,9 +83,9 @@ public:
 private:
     TransactionState state_;
 
-    // thread id, single-threaded transactions
+    // thread id, single-threaded transactions 一个事务代表的是一个线程的操作
     std::thread::id thread_id_;
-    // transaction id
+    // transaction id 系统维护的自增id，事务manager管理，新来一个事务就开始一个新的id
     txn_id_t txn_id_;
 
     // Below are used by transaction, undo set, undo 用于回滚操作，redo 用于重新操作
@@ -102,8 +102,10 @@ private:
 
     // Below are used by lock manager
     // this set contains rid of shared-locked tuples by this transaction
+    // 这个set包含一系列的rids，当前事务拥有这些rids的共享锁
     std::shared_ptr<std::unordered_set<RID>> shared_lock_set_;
     // this set contains rid of exclusive-locked tuples by this transaction
+    // 这个set是一系列的rids，当前事务拥有这些rids的排它锁
     std::shared_ptr<std::unordered_set<RID>> exclusive_lock_set_;
 };
 } // namespace cmudb
