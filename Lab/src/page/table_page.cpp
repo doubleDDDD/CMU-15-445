@@ -181,6 +181,17 @@ bool TablePage::MarkDelete(const RID &rid, Transaction *txn,
   return true;
 }
 
+/**
+ * @brief 以下过程的执行是 hold tuple 锁的，注意一下事务锁的获取与阻塞等过程
+ * @param  new_tuple        desc
+ * @param  old_tuple        desc
+ * @param  rid              desc
+ * @param  txn              desc
+ * @param  lock_manager     desc
+ * @param  log_manager      desc
+ * @return true @c 
+ * @return false @c 
+ */
 bool TablePage::UpdateTuple(const Tuple &new_tuple, Tuple &old_tuple,
                             const RID &rid, Transaction *txn,
                             LockManager *lock_manager,
@@ -204,7 +215,7 @@ bool TablePage::UpdateTuple(const Tuple &new_tuple, Tuple &old_tuple,
     return false;
   }
 
-  // copy out old value
+  // copy out old value 备份先
   int32_t tuple_offset =
       GetTupleOffset(slot_num); // the tuple offset of the old tuple
   old_tuple.size_ = tuple_size;
@@ -215,17 +226,27 @@ bool TablePage::UpdateTuple(const Tuple &new_tuple, Tuple &old_tuple,
   old_tuple.rid_ = rid;
   old_tuple.allocated_ = true;
 
+  // log一定是op的严格顺序，依赖锁等并发控制机制实现
   if (ENABLE_LOGGING) {
     // acquire exclusive lock
-    // 实际上就是写操作
+    // 首先当前事务准备执行一个写操作，下面是能够比较好的说明update锁的作用的
+    // ...
+    // 在尝试获取锁的过程中，都有可能阻塞在条件变量上，那就是连续获取了两个锁啊，即会在持有 page锁 的前提下等待，等待并获取锁后返回true
+    // ...
     // if has shared lock
     if (txn->GetSharedLockSet()->find(rid) != txn->GetSharedLockSet()->end()) {
         // 在集合中，end返回的是最后的迭代器，find一直没有找到，最后就会到迭代器
-      if (!lock_manager->LockUpgrade(txn, rid))
+        // 当前事务对当前rid有加读锁，显然不能继续加写锁，因为读写锁是不兼容的，或者说是互斥的，只能加update锁
+        // update锁有共享锁是兼容的，表示想要有一个写操作，而且该锁的add也无需考虑读锁的释放
+        // 如果没有update锁，那么在拥有读锁的情况下想要获取写锁就会直接与2pl相违背，所以update锁的出现是必然的也是必要的
+      if (!lock_manager->LockUpgrade(txn, rid)){
         return false;
+      }
     } else if (txn->GetExclusiveLockSet()->find(rid) ==
         txn->GetExclusiveLockSet()->end() &&
-        !lock_manager->LockExclusive(txn, rid)) { // no shared lock
+        !lock_manager->LockExclusive(txn, rid)) { 
+      // no shared lock
+      // 如果没有读锁，那么该事务直接尝试获取写锁以完成写操作，如果后续有读操作，在持有写锁的情况下，读取是不受影响的
       return false;
     }
 
@@ -237,7 +258,7 @@ bool TablePage::UpdateTuple(const Tuple &new_tuple, Tuple &old_tuple,
     SetLSN(lsn);
   }
 
-  // update
+  // update 能执行下来即说明已经得到了对应的锁，并且在log已经按照严格的顺序将op写入了log，完成原子的更新
   int32_t free_space_pointer =
       GetFreeSpacePointer(); // old pointer to the free space
   assert(tuple_offset >= free_space_pointer);
@@ -349,6 +370,16 @@ void TablePage::RollbackDelete(const RID &rid, Transaction *txn,
     SetTupleSize(slot_num, -tuple_size);
 }
 
+/**
+ * @brief 在事务的锁管理中，需要得到一个读锁，就是PPT中R(A)的过程
+ * 不需要追加log
+ * @param  rid              desc
+ * @param  tuple            desc
+ * @param  txn              desc
+ * @param  lock_manager     desc
+ * @return true @c 
+ * @return false @c 
+ */
 bool TablePage::GetTuple(const RID &rid, Tuple &tuple, Transaction *txn,
                          LockManager *lock_manager) {
   int slot_num = rid.GetSlotNum();
@@ -370,8 +401,10 @@ bool TablePage::GetTuple(const RID &rid, Tuple &tuple, Transaction *txn,
         txn->GetExclusiveLockSet()->end() &&
         txn->GetSharedLockSet()->find(rid) == txn->GetSharedLockSet()->end() &&
         !lock_manager->LockShared(txn, rid)) {
+      // 当前事务未持有写锁 且 当前事务未持有读锁 且 尝试从锁管理器获取读锁时失败
       return false;
     }
+    // 如果当前事务持有写锁或持有读锁都直接就继续执行了
   }
 
   int32_t tuple_offset = GetTupleOffset(slot_num);

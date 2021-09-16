@@ -106,6 +106,18 @@ bool TableHeap::MarkDelete(const RID &rid, Transaction *txn) {
   return true;
 }
 
+/**
+ * @brief 该线程持有page锁，即所update的tuple所在的page
+ * 
+ * 在这里分析一下 page的读写锁 与事务的锁管理器锁管理的锁（读写锁以及update锁）的交互的关系
+ *  事务的锁管理器所管理的锁必须在事务的shrinking阶段释放，但是page锁可以在事务的任何阶段释放并重新get
+ *  还是去md里说吧
+ * @param  tuple            desc 新构建的tuple 用于替换旧值的
+ * @param  rid              desc 新构建的与tuple对应的rid
+ * @param  txn              desc
+ * @return true @c 
+ * @return false @c 
+ */
 bool TableHeap::UpdateTuple(const Tuple &tuple, const RID &rid,
                             Transaction *txn) {
   auto page = reinterpret_cast<TablePage *>(
@@ -115,13 +127,17 @@ bool TableHeap::UpdateTuple(const Tuple &tuple, const RID &rid,
     return false;
   }
   Tuple old_tuple;
+  // 事务如果想要操作某tuple，首先是要得到page锁的
   page->WLatch();
   bool is_updated = page->UpdateTuple(tuple, old_tuple, rid, txn, lock_manager_,
                                       log_manager_);
   page->WUnlatch();
-  buffer_pool_manager_->UnpinPage(page->GetPageId(), is_updated);
-  if (is_updated && txn->GetState() != TransactionState::ABORTED)
+  // 到此为止，事务所持有的 rid tuple 的写锁还未释放
+  // 这两个锁的get与release还是比较有趣哦，可以分析一下
+  buffer_pool_manager_->UnpinPage(page->GetPageId(), is_updated);  // 减少一个ref
+  if (is_updated && txn->GetState() != TransactionState::ABORTED){
     txn->GetWriteSet()->emplace_back(rid, WType::UPDATE, old_tuple, this);
+  }
   return is_updated;
 }
 

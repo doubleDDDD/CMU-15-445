@@ -88,7 +88,10 @@ private:
     // transaction id 系统维护的自增id，事务manager管理，新来一个事务就开始一个新的id
     txn_id_t txn_id_;
 
-    // Below are used by transaction, undo set, undo 用于回滚操作，redo 用于重新操作
+    // Below are used by transaction, undo set, undo 用于回滚操作
+    // 虽然没有提交的事务也可以被部分持久化，但是前提是日志需要被持久化
+    // undo set old_tuple，如果在一次事务中，有两次update的操作，第一次事务update成功，修改将被写到log并且被原地更新，old value将被保存到 write_set_
+    // 如果第二次update的过程中失败了，将导致事务的abort，那么第一个就需要被回滚，回滚依赖的就是write_set_中的entry
     std::shared_ptr<std::deque<WriteRecord>> write_set_;
     // prev lsn
     lsn_t prev_lsn_;

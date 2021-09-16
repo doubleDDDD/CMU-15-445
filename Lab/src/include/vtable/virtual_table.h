@@ -222,10 +222,14 @@ public:
 
     // return rid at which cursor is currently pointed
     inline int64_t GetCurrentRid() {
-        if (is_index_scan_)
+        if (is_index_scan_) {
             return results[offset_].Get();
-        else
+        }
+        else {
+            // RID代表的是pageid与slot_num，根据这个就可以准确唯一的定位一个tuple
+            // inline int64_t Get() const { return ((int64_t) page_id_) << 32 | slot_num_; }
             return (*table_iterator_).GetRid().Get();
+        }
     }
 
     // return tuple at which cursor is currently pointed

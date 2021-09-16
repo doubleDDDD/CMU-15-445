@@ -280,6 +280,7 @@ int VtabColumn(sqlite3_vtab_cursor *cur, sqlite3_context *ctx, int i) {
   return SQLITE_OK;
 }
 
+// 这里读取的仅仅是rowID
 int VtabRowid(sqlite3_vtab_cursor *cur, sqlite3_int64 *pRowid) {
   // LOG_DEBUG("VtabRowid");
   Cursor *cursor = reinterpret_cast<Cursor *>(cur);
@@ -330,6 +331,7 @@ int VtabUpdate(
         table->DeleteEntry(rid);
         // if true, then update succeed, rid keep the same
         // else, delete & insert
+        // tuple与rid都是新构建的
         if (table->UpdateTuple(tuple, rid) == false) {
             table->DeleteTuple(rid);
             // rid should be different

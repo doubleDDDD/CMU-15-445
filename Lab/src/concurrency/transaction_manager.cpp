@@ -29,7 +29,7 @@ Transaction *TransactionManager::Begin() {
 
 void TransactionManager::Commit(Transaction *txn) {
     txn->SetState(TransactionState::COMMITTED);
-    // truly delete before commit
+    // truly delete before commit,如果没有到提交这些是需要回滚的
     auto write_set = txn->GetWriteSet();
     while (!write_set->empty()) {
         auto &item = write_set->back();
@@ -59,7 +59,7 @@ void TransactionManager::Commit(Transaction *txn) {
     std::unordered_set<RID> lock_set;
     for (auto item : *txn->GetSharedLockSet()) { lock_set.emplace(item); }
     for (auto item : *txn->GetExclusiveLockSet()) { lock_set.emplace(item); }
-
+    // lock_set表示的是该事务所有持有锁的rid
     // release all the lock
     for (auto locked_rid : lock_set) {
         lock_manager_->Unlock(txn, locked_rid);
