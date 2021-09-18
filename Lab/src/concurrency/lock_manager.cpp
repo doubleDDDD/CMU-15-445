@@ -28,12 +28,14 @@ bool LockManager::LockShared(Transaction *txn, const RID &rid)
   Request req{txn->GetTransactionId(), LockMode::SHARED, false};
   if (lock_table_.count(rid) == 0)
   {
+    // 当前没有其它事务持有该rid的锁，所以下面的在条件变量上的等待是一定可以过的
     lock_table_[rid].exclusive_cnt = 0;
     lock_table_[rid].oldest = txn->GetTransactionId();
     lock_table_[rid].list.push_back(req);
   }
   else
   {
+    // 目前有事务等待在rid上（或读或写）
     if (lock_table_[rid].exclusive_cnt != 0 &&
         txn->GetTransactionId() > lock_table_[rid].oldest)
     {
@@ -49,6 +51,7 @@ bool LockManager::LockShared(Transaction *txn, const RID &rid)
   }
 
   // 等待条件变量，等待直到获取读锁
+  // 如果所有阻塞在rid上的事务都是读事务且都获得了授权，则当前线程继续进入读取
   Request *cur = nullptr;
   cond.wait(latch, [&]() -> bool {
     bool all_shared = true, all_granted = true;
@@ -63,6 +66,7 @@ bool LockManager::LockShared(Transaction *txn, const RID &rid)
       }
       else
       {
+        // 本身是被push到最后的，所以最后一个一定是新的
         cur = &r;
         return all_shared && all_granted;
       }
