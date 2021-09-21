@@ -54,6 +54,10 @@ bool TableHeap::InsertTuple(const Tuple &tuple, RID &rid, Transaction *txn)
         return false;
     }
 
+    /**
+     * @brief insert一个tuple的时候。是从table的第一个page开始遍历的，性能很低
+     * 但是操作每一个page确实是需要锁的 
+     */
     cur_page->WLatch();
     while (!cur_page->InsertTuple(tuple, rid, txn, lock_manager_, log_manager_)) {
         /* fail to insert due to not enough space */
@@ -128,6 +132,7 @@ bool TableHeap::UpdateTuple(const Tuple &tuple, const RID &rid,
   }
   Tuple old_tuple;
   // 事务如果想要操作某tuple，首先是要得到page锁的
+  // 这个page锁是必须加的
   page->WLatch();
   bool is_updated = page->UpdateTuple(tuple, old_tuple, rid, txn, lock_manager_,
                                       log_manager_);

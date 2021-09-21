@@ -33,6 +33,9 @@ int VtabCreate(
     sqlite3 *db, void *pAux, int argc, const char *const *argv,
     sqlite3_vtab **ppVtab, char **pzErr) 
 {
+    BackTracePlus();
+    std::printf("Create vtable!\n");
+    std::printf("\n\n");
     /**
     * @brief 
     * storage_engine_ is a global var
@@ -99,6 +102,10 @@ int VtabConnect(
     sqlite3 *db, void *pAux, int argc, const char *const *argv,
     sqlite3_vtab **ppVtab, char **pzErr) 
 {
+    BackTracePlus();
+    std::printf("Connect vtable!\n");
+    std::printf("\n\n");
+
     assert(argc >= 4);
     std::string schema_string(argv[3]);
     // remove the very first and last character
@@ -402,6 +409,7 @@ extern "C" int sqlite3_vtable_init(sqlite3 *db, char **pzErrMsg,
     std::string db_file_name = "vtable.db";
     struct stat buffer;  /* stat命令检查文件是否存在 */
     bool is_file_exist = (stat(db_file_name.c_str(), &buffer) == 0);
+    std::printf("Prepare to init vtable in load!\n");
     /**
      * @brief init storage engine
      */
@@ -410,6 +418,7 @@ extern "C" int sqlite3_vtable_init(sqlite3 *db, char **pzErrMsg,
     storage_engine_->log_manager_->RunFlushThread();
     // create header page from BufferPoolManager if necessary
     if (!is_file_exist) {
+        std::printf("file is not exist!\n");
         page_id_t header_page_id;
         storage_engine_->buffer_pool_manager_->NewPage(header_page_id);
         assert(header_page_id == HEADER_PAGE_ID);

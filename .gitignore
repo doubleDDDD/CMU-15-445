@@ -5,3 +5,6 @@ GTAGS
 Lab/build/*
 Lab/debug/*
 Lab/release/*
+Lab/myapp/*
+!Lab/myapp/Makefile
+!Lab/myapp/test.cpp
