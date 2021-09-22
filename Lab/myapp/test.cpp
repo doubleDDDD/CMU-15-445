@@ -97,7 +97,6 @@ BackTracePlus()
 //     }
 //     return;
 // }
-
 // void
 // Read(SimpleLevelDB* db_){
 //     // 多线程并发的读操作
@@ -110,31 +109,6 @@ BackTracePlus()
 //     }
 //     return;
 // }
-
-// void
-// RunSimpleLevelDB()
-// {
-//     SimpleLevelDB db_(&env, &globalVersionSet);
-//     db_.Open();
-
-//     std::thread writethreads[10];
-//     for(int i=0;i<10;++i){
-//         writethreads[i] = std::thread(Write, &db_);
-//     }
-
-//     std::thread readthreads[10];
-//     for(int i=0;i<10;++i){
-//         readthreads[i] = std::thread(Read, &db_);
-//     }
-
-//     for (auto& t: writethreads) {t.join();}
-//     for (auto& t: readthreads) {t.join();}
-//     return;
-// }
-
-void ConcurrencyControl(){
-    return;
-}
 
 static int 
 Callback(void *NotUsed, int argc, char **argv, char **azColName)
@@ -302,6 +276,11 @@ VTable()
         fprintf(stdout, "Select Operation done successfully\n");
     }
 
+    // 准备测试一下并发
+    std::thread threads[2];
+    threads[0] = std::thread();
+    threads[1] = std::thread();
+    for (auto& t: threads) {t.join();}
     sqlite3_close(db);
     return;
 }
@@ -311,6 +290,5 @@ int main(int argc, char* argv[])
 {
     // RealTable();
     VTable();
-    // ConcurrencyControl();
     return 0;
 }
