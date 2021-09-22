@@ -144,6 +144,8 @@ bool ExtendibleHash<K, V>::Remove(const K &key)
 template <typename K, typename V>
 void ExtendibleHash<K, V>::Insert(const K &key, const V &value) 
 {
+    // BackTracePlus();
+    // std::printf("\n\n");
     std::lock_guard<std::mutex> lock(mutex_);
     size_t bucket_id = HashKey(key) & ((1 << depth) - 1);
 #ifdef EX_HASH_DEBUG

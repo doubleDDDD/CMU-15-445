@@ -34,8 +34,10 @@ public:
 	Page *FetchPage(page_id_t page_id);
 	bool UnpinPage(page_id_t page_id, bool is_dirty);
 	bool FlushPage(page_id_t page_id);
+    void FlushAllDirtyPage();
 	Page *NewPage(page_id_t &page_id);
 	bool DeletePage(page_id_t page_id);
+    HashTable<page_id_t, Page *>* GetPageTable() { return page_table_; }
 
 	// for debug
 	bool Check() const

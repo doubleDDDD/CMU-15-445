@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "hash/hash_table.h"
+#include "stack/stack.h"
 
 // #define EX_HASH_DEBUG
 namespace cmudb {

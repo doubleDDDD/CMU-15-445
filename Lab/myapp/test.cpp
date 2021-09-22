@@ -223,20 +223,32 @@ RealTable()
 void
 VTable()
 {
+    // db是一个数据库连接的实例
     sqlite3 *db;
     char *zErrMsg = 0;
     int rc;
     const char* data = "Callback function called";
 
-    rc = sqlite3_open(":memory", &db);
+    // If the filename is ":memory:", then a private, temporary in-memory database is created for the connection
+    // if( data.zDbFilename==0 ){ data.zDbFilename = ":memory:"; }
+    rc = sqlite3_open(":memory:", &db);
     if(rc){
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
         exit(0);
     } else { fprintf(stderr, "Open database successfully\n"); }
+    // 到此为止数据库连接的实例显然是已经创建完成了
 
     // load 虚拟表
-    const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
+    // const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
+    const std::string extpath = "/home/doubled/double_D/DB/CMU-15-445/Lab/debug/lib/libvtable.so";
     rc = sqlite3_enable_load_extension(db, 1);
+    // int sqlite3_load_extension(
+    // sqlite3 *db,          /* Load the extension into this database connection */
+    // const char *zFile,    /* Name of the shared library containing extension */
+    // const char *zProc,    /* Entry point.  Derived from zFile if 0 */
+    // char **pzErrMsg       /* Put error message here if not 0 */
+    // );
+    // load扩展之前必须有一个数据库的连接
     rc = sqlite3_load_extension(db, extpath.c_str(), NULL, &zErrMsg);
     if( rc != SQLITE_OK ){
         fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -244,6 +256,8 @@ VTable()
     } else { fprintf(stdout, "Load extension successfully\n"); }
 
     // 先创建一张虚拟表，会生成以下文件 vtable.db  vtable.log
+    // 创建表之后再关闭数据库，是会调用到xDisconnect的
+    // 会调用 VtabCreate
     /* Create SQL statement */
     const std::string sqlcreate = "CREATE VIRTUAL TABLE COMPANY " \
         "USING vtable("\
@@ -253,24 +267,21 @@ VTable()
         "ADDRESS varchar(48), "\
         "SALARY int');";
 
-    // /* Execute SQL statement */
-    // // std::printf("sql is %s\n", sqlcreate.c_str());    
-    // rc = sqlite3_exec(db, sqlcreate.c_str(), Callback, 0, &zErrMsg);
-    // if( rc != SQLITE_OK ){
-    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
-    //     sqlite3_free(zErrMsg);
-    // } else { fprintf(stdout, "Virtual table created successfully\n"); }
+    /* Execute SQL statement */
+    // std::printf("sql is %s\n", sqlcreate.c_str());    
+    rc = sqlite3_exec(db, sqlcreate.c_str(), Callback, 0, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    } else { fprintf(stdout, "Virtual table created successfully\n"); }
 
     // 执行insert
     /* Create SQL statement */
-    const std::string sqlinsert = "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY) "  \
-            "VALUES (1, 'Paul', 32, 'California', 20000 ); " \
-            "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY) "  \
-            "VALUES (2, 'Allen', 25, 'Texas', 15000 ); "     \
-            "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY)" \
-            "VALUES (3, 'Teddy', 23, 'Norway', 20000 );" \
-            "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY)" \
-            "VALUES (4, 'Mark', 25, 'Rich-Mond ', 65000 );";
+    const std::string sqlinsert = \
+            "INSERT INTO COMPANY VALUES(1, 'Paul', 32, 'California', 20000); " \
+            "INSERT INTO COMPANY VALUES(2, 'Allen', 25, 'Texas', 15000 ); "     \
+            "INSERT INTO COMPANY VALUES(3, 'Teddy', 23, 'Norway', 20000 ); " \
+            "INSERT INTO COMPANY VALUES(4, 'Mark', 25, 'Rich-Mond ', 65000 );";
 
     /* Execute SQL statement */
     rc = sqlite3_exec(db, sqlinsert.c_str(), Callback, 0, &zErrMsg);
@@ -279,6 +290,19 @@ VTable()
         sqlite3_free(zErrMsg);
     } else { fprintf(stdout, "Records created successfully\n"); }
 
+    // 再来一个读操作
+    /* Create SQL statement */
+    const std::string sqlselect = "SELECT * from COMPANY";
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sqlselect.c_str(), Callback, (void*)data, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }else{
+        fprintf(stdout, "Select Operation done successfully\n");
+    }
+
+    sqlite3_close(db);
     return;
 }
 

@@ -40,6 +40,9 @@ public:
     bool GetRootId(const std::string &name, page_id_t &root_id);
     int GetRecordCount();
 
+    // public 一下
+    bool TableExist(const std::string &name) { return FindRecord(name) != -1; }
+
 private:
     /**
     * helper functions

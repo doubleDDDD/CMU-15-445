@@ -181,6 +181,29 @@ BufferPoolManager::FlushPage(page_id_t page_id)
 }
 
 /**
+ * @brief 刷所有的脏页到disk
+ */
+void 
+BufferPoolManager::FlushAllDirtyPage()
+{
+    /* fsync all db file */
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    size_t i;
+    Page *res = nullptr;
+
+    for(i=0; i < pool_size_; ++i){
+        res = pages_ + i;
+        if(res->is_dirty_) {
+            /* 如果这个page是被替换下来的，那么它一定是个脏的 */
+            disk_manager_->WritePage(res->page_id_, res->GetData());
+        }
+    }
+
+    return;
+}
+
+/**
  * User should call this method for deleting a page. 
  * This routine will call disk manager to deallocate the page. 
  * First, if page is found within page table, buffer pool manager should be responsible for removing this entry out

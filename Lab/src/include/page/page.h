@@ -44,6 +44,8 @@ public:
 
     inline lsn_t GetLSN() { return *reinterpret_cast<lsn_t *>(GetData() + 4); }
     inline void SetLSN(lsn_t lsn) { memcpy(GetData() + 4, &lsn, 4); }
+    inline void SetDirty(){ is_dirty_=true; }
+    inline bool GetDirtyFlag(){ return is_dirty_; }
 
 private:
     // method used by buffer pool manager

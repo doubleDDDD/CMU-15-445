@@ -22,8 +22,8 @@ TableHeap::TableHeap(BufferPoolManager *buffer_pool_manager,
                      Transaction *txn)
     : buffer_pool_manager_(buffer_pool_manager), lock_manager_(lock_manager),
       log_manager_(log_manager) {
-  auto first_page =
-      static_cast<TablePage *>(buffer_pool_manager_->NewPage(first_page_id_));
+  // 在最简单的测试用例中，新分配的pageid=1
+  auto first_page = static_cast<TablePage *>(buffer_pool_manager_->NewPage(first_page_id_));
   assert(first_page != nullptr); // todo: abort table creation?
   first_page->WLatch();
   //LOG_DEBUG("new table page created %d", first_page_id_);

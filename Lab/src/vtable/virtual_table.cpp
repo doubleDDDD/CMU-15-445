@@ -33,9 +33,9 @@ int VtabCreate(
     sqlite3 *db, void *pAux, int argc, const char *const *argv,
     sqlite3_vtab **ppVtab, char **pzErr) 
 {
-    BackTracePlus();
+    // BackTracePlus();
     std::printf("Create vtable!\n");
-    std::printf("\n\n");
+    std::printf("\n");
     /**
     * @brief 
     * storage_engine_ is a global var
@@ -73,14 +73,22 @@ int VtabCreate(
         // 组合索引，B+tree也仅仅只有一个
         index = ConstructIndex(index_metadata, buffer_pool_manager);
     }
-    // create table object, allocate memory space
-    VirtualTable *table = new VirtualTable(
-        schema, buffer_pool_manager, lock_manager, log_manager, index);
 
+    // 还是把检查拿到前面来处理
+    if(header_page->TableExist(std::string(argv[2]))){
+        std::printf("table %s has already exists!\n", std::string(argv[2]).c_str());
+        return SQLITE_ERROR;
+    }
+    // create table object, allocate memory space
+    VirtualTable *table = new VirtualTable(schema, buffer_pool_manager, lock_manager, log_manager, index);
     // insert table root page info into header page
     header_page->InsertRecord(std::string(argv[2]), table->GetFirstPageId());
-    buffer_pool_manager->UnpinPage(HEADER_PAGE_ID, true);
 
+    // // for debug
+    // Page *res = nullptr;
+    // HashTable<page_id_t, Page *> *page_table____ = buffer_pool_manager->GetPageTable();
+    // page_table____->Find(HEADER_PAGE_ID, res);
+    buffer_pool_manager->UnpinPage(HEADER_PAGE_ID, true);
     // register virtual table within sqlite system
     schema_string = "CREATE TABLE X(" + schema_string + ");";
     assert(sqlite3_declare_vtab(db, schema_string.c_str()) == SQLITE_OK);
@@ -93,7 +101,7 @@ int VtabCreate(
  * @brief
  * @param  db               desc
  * @param  pAux             desc
- * @param  argc             desc
+ * @param  argc             de  sc
  * @param  argv             desc
  * @param  ppVtab           desc
  * @param  pzErr            desc
@@ -189,8 +197,16 @@ int VtabBestIndex(sqlite3_vtab *tab, sqlite3_index_info *pIdxInfo) {
   return SQLITE_OK;
 }
 
+/**
+ * @brief 增加脏页写回的步骤，即将数据持久化一下
+ * @param  pVtab            desc
+ * @return int @c 
+ */
 int VtabDisconnect(sqlite3_vtab *pVtab) {
+  std::printf("disconnect vtable!\n");
   VirtualTable *virtual_table = reinterpret_cast<VirtualTable *>(pVtab);
+  // 将所有的脏页写回
+  storage_engine_->buffer_pool_manager_->FlushAllDirtyPage();
   delete virtual_table;
   // delete all the global managers
   delete storage_engine_;
@@ -200,6 +216,7 @@ int VtabDisconnect(sqlite3_vtab *pVtab) {
 int VtabOpen(sqlite3_vtab *pVtab, sqlite3_vtab_cursor **ppCursor) {
   // LOG_DEBUG("VtabOpen");
   // if read operation, begin transaction here
+  std::printf("open vtable!\n");
   if (global_transaction_ == nullptr) {
     VtabBegin(pVtab);
   }
@@ -211,6 +228,7 @@ int VtabOpen(sqlite3_vtab *pVtab, sqlite3_vtab_cursor **ppCursor) {
 }
 
 int VtabClose(sqlite3_vtab_cursor *cur) {
+  std::printf("close vtable!\n");
   // LOG_DEBUG("VtabClose");
   Cursor *cursor = reinterpret_cast<Cursor *>(cur);
   // if read operation, commit transaction here
@@ -301,6 +319,7 @@ int VtabUpdate(
     sqlite_int64 *pRowid) 
 {
     // LOG_DEBUG("VtabUpdate");
+    std::printf("VtabUpdate\n");
     VirtualTable *table = reinterpret_cast<VirtualTable *>(pVTab);
 
     // RID帮忙索引一个tuple所在的pageid与slotid
@@ -414,16 +433,21 @@ extern "C" int sqlite3_vtable_init(sqlite3 *db, char **pzErrMsg,
      * @brief init storage engine
      */
     storage_engine_ = new StorageEngine(db_file_name);
-    // start the logging
+    // start the logging set ENABLE_LOGGING = true;
     storage_engine_->log_manager_->RunFlushThread();
     // create header page from BufferPoolManager if necessary
     if (!is_file_exist) {
         std::printf("file is not exist!\n");
         page_id_t header_page_id;
+        // 从free_list中取一个page到hash_table,ref++ 
+        // Page* firstpage = 
         storage_engine_->buffer_pool_manager_->NewPage(header_page_id);
         assert(header_page_id == HEADER_PAGE_ID);
+        // 把这个page设置为脏然后刷下去
+        // firstpage->SetDirty();  unpin会set page为脏
         /* unpin表示不再使用page */
         storage_engine_->buffer_pool_manager_->UnpinPage(header_page_id, true);
+        storage_engine_->buffer_pool_manager_->FlushPage(header_page_id);
     }
 
     int rc = sqlite3_create_module(db, "vtable", &VtableModule, nullptr);

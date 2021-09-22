@@ -57,6 +57,9 @@ DiskManager::DiskManager(const std::string &db_file)
         // reopen with original mode
         db_io_.open(db_file, std::ios::binary | std::ios::in | std::ios::out);
     }
+
+    // 根据文件大小，为next_page_id_赋值
+    next_page_id_ = GetFileSize(file_name_) / PAGE_SIZE;
 }
 
 DiskManager::~DiskManager() {
