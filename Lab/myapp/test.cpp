@@ -83,39 +83,12 @@ BackTracePlus()
     }
 }
 
-// void 
-// Write(SimpleLevelDB* db_){
-//     // 多线程并发的写操作
-//     std::string usrkey(std::to_string(gettid()));
-//     std::string value("double's simple DB");
-//     for(int i=0;i<100000;++i){
-//         std::string _key;
-//         _key += usrkey;
-//         std::string _value;
-//         _value += value;
-//         db_->Put(_key, _value);
-//     }
-//     return;
-// }
-// void
-// Read(SimpleLevelDB* db_){
-//     // 多线程并发的读操作
-//     std::string usrkey(std::to_string(gettid()));
-//     std::string get_value;
-//     for(int i=0;i<100000;++i){
-//         std::string _key;
-//         _key += usrkey;
-//         db_->Get(_key, &get_value);
-//     }
-//     return;
-// }
-
 static int 
 Callback(void *NotUsed, int argc, char **argv, char **azColName)
 {
     int i;
     for(i=0; i<argc; i++){
-        printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+        printf("%s=%s, ", azColName[i], argv[i] ? argv[i] : "NULL");
     }
     printf("\n");
     return 0;
@@ -195,6 +168,44 @@ RealTable()
 }
 
 void
+UpdateAndRead(sqlite3 *db)
+{
+    int rc;
+    char *zErrMsg = 0;
+    std::printf("update and read threadid=%d, T1\n", gettid());
+
+    const std::string sqlupdateandread = \
+            "UPDATE COMPANY set SALARY=88888 where ID=1; " \
+            "SELECT * from COMPANY where ID=1;";
+
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }
+
+    return;
+}
+
+void
+Update(sqlite3 *db)
+{
+    int rc;
+    char *zErrMsg = 0;
+    std::printf("update threadid=%d, T2\n", gettid());
+
+    const std::string sqlupdateandread = "UPDATE COMPANY set SALARY=66666 where ID=1;";
+    
+    rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }
+    return;
+}
+
+void
 VTable()
 {
     // db是一个数据库连接的实例
@@ -213,8 +224,8 @@ VTable()
     // 到此为止数据库连接的实例显然是已经创建完成了
 
     // load 虚拟表
-    // const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
-    const std::string extpath = "/home/doubled/double_D/DB/CMU-15-445/Lab/debug/lib/libvtable.so";
+    const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
+    // const std::string extpath = "/home/doubled/double_D/DB/CMU-15-445/Lab/debug/lib/libvtable.so";
     rc = sqlite3_enable_load_extension(db, 1);
     // int sqlite3_load_extension(
     // sqlite3 *db,          /* Load the extension into this database connection */
@@ -276,11 +287,26 @@ VTable()
         fprintf(stdout, "Select Operation done successfully\n");
     }
 
-    // 准备测试一下并发
+    /**
+     * @brief 准备测试一下并发
+     *  T1 写 + 读
+     *  T2 写
+     *  不加以控制 T1将得到错误的数据
+     */
     std::thread threads[2];
-    threads[0] = std::thread();
-    threads[1] = std::thread();
+    threads[0] = std::thread(UpdateAndRead, db);
+    threads[1] = std::thread(Update, db);
     for (auto& t: threads) {t.join();}
+
+    // 最后再验证一下
+    std::printf("last verify\n");
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sqlselect.c_str(), Callback, (void*)data, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }
+
     sqlite3_close(db);
     return;
 }

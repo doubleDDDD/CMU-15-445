@@ -18,8 +18,13 @@ void LogManager::RunFlushThread()
 {
     std::lock_guard<std::mutex> guard(latch_);
     if (flush_thread_on == false) {
+#ifndef FORBIDLOG
         ENABLE_LOGGING = true;
-
+        std::printf("Set ENABLE_LOGGING true\n");
+#else
+        // 禁止log之后快的过分
+        std::printf("FORBID LOGGING\n");
+#endif
         // true 表明flush thread 在运行
         flush_thread_on = true;
         flush_thread_ = new std::thread(&LogManager::bgFsync, this);
