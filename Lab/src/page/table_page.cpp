@@ -402,6 +402,8 @@ bool TablePage::GetTuple(const RID &rid, Tuple &tuple, Transaction *txn,
         txn->GetSharedLockSet()->find(rid) == txn->GetSharedLockSet()->end() &&
         !lock_manager->LockShared(txn, rid)) {
       // 当前事务未持有写锁 且 当前事务未持有读锁 且 尝试从锁管理器获取读锁时失败
+      // std::printf("get tuple false!\n");
+      // BackTracePlus();
       return false;
     }
     // 如果当前事务持有写锁或持有读锁都直接就继续执行了

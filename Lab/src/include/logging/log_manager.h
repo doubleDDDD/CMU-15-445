@@ -13,7 +13,7 @@
 #include "disk/disk_manager.h"
 #include "logging/log_record.h"
 
-#define FORBIDLOG
+// #define FORBIDLOG
 
 namespace cmudb {
 

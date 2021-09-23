@@ -179,6 +179,10 @@ bool TableHeap::GetTuple(const RID &rid, Tuple &tuple, Transaction *txn) {
   bool res = page->GetTuple(rid, tuple, txn, lock_manager_);
   page->RUnlatch();
   buffer_pool_manager_->UnpinPage(rid.GetPageId(), false);
+  if(!res){
+    txn->SetState(TransactionState::ABORTED);
+    return false;
+  }
   return res;
 }
 

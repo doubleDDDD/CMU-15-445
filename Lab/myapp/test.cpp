@@ -109,61 +109,61 @@ RealTable()
     } else { fprintf(stderr, "Opened database successfully\n"); }
 
     // 先创建一张表
-    // /* Create SQL statement */
-    // const std::string sqlcreate = "CREATE TABLE COMPANY("  \
-    //         "ID INT PRIMARY KEY     NOT NULL," \
-    //         "NAME           TEXT    NOT NULL," \
-    //         "AGE            INT     NOT NULL," \
-    //         "ADDRESS        CHAR(50)," \
-    //         "SALARY         REAL );";
+    /* Create SQL statement */
+    const std::string sqlcreate = "CREATE TABLE COMPANY("  \
+            "ID INT PRIMARY KEY     NOT NULL," \
+            "NAME           TEXT    NOT NULL," \
+            "AGE            INT     NOT NULL," \
+            "ADDRESS        CHAR(50)," \
+            "SALARY         REAL );";
 
-    // /* Execute SQL statement */
-    // rc = sqlite3_exec(db, sqlcreate.c_str(), Callback, 0, &zErrMsg);
-    // if( rc != SQLITE_OK ){
-    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
-    //     sqlite3_free(zErrMsg);
-    // } else { fprintf(stdout, "Table created successfully\n"); }
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sqlcreate.c_str(), Callback, 0, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    } else { fprintf(stdout, "Table created successfully\n"); }
 
     // 执行insert
-    // /* Create SQL statement */
-    // const std::string sqlinsert = "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY) "  \
-    //         "VALUES (1, 'Paul', 32, 'California', 20000.00 ); " \
-    //         "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY) "  \
-    //         "VALUES (2, 'Allen', 25, 'Texas', 15000.00 ); "     \
-    //         "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY)" \
-    //         "VALUES (3, 'Teddy', 23, 'Norway', 20000.00 );" \
-    //         "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY)" \
-    //         "VALUES (4, 'Mark', 25, 'Rich-Mond ', 65000.00 );";
+    /* Create SQL statement */
+    const std::string sqlinsert = "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY) "  \
+            "VALUES (1, 'Paul', 32, 'California', 20000.00 ); " \
+            "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY) "  \
+            "VALUES (2, 'Allen', 25, 'Texas', 15000.00 ); "     \
+            "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY)" \
+            "VALUES (3, 'Teddy', 23, 'Norway', 20000.00 );" \
+            "INSERT INTO COMPANY (ID,NAME,AGE,ADDRESS,SALARY)" \
+            "VALUES (4, 'Mark', 25, 'Rich-Mond ', 65000.00 );";
 
-    // /* Execute SQL statement */
-    // rc = sqlite3_exec(db, sqlinsert.c_str(), Callback, 0, &zErrMsg);
-    // if( rc != SQLITE_OK ){
-    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
-    //     sqlite3_free(zErrMsg);
-    // } else { fprintf(stdout, "Records created successfully\n"); }
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sqlinsert.c_str(), Callback, 0, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    } else { fprintf(stdout, "Records created successfully\n"); }
 
     // 读操作
-    // /* Create SQL statement */
-    // const std::string sqlselect = "SELECT * from COMPANY";
-    // /* Execute SQL statement */
-    // rc = sqlite3_exec(db, sqlselect.c_str(), Callback, (void*)data, &zErrMsg);
-    // if( rc != SQLITE_OK ){
-    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
-    //     sqlite3_free(zErrMsg);
-    // }else { fprintf(stdout, "Operation done successfully\n"); }
+    /* Create SQL statement */
+    const std::string sqlselect = "SELECT * from COMPANY";
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sqlselect.c_str(), Callback, (void*)data, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }else { fprintf(stdout, "Operation done successfully\n"); }
 
     // update 操作
-    // /* Create merged SQL statement */
-    // const std::string sqlupdate = "UPDATE COMPANY set SALARY = 26000.00 where ID=1; " \
-    //         "SELECT * from COMPANY";
-    // /* Execute SQL statement */
-    // rc = sqlite3_exec(db, sqlupdate.c_str(), Callback, (void*)data, &zErrMsg);
-    // if( rc != SQLITE_OK ){
-    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
-    //     sqlite3_free(zErrMsg);
-    // } else { fprintf(stdout, "Operation done successfully\n"); }
+    /* Create merged SQL statement */
+    const std::string sqlupdate = "UPDATE COMPANY set SALARY = 88888.00 where ID=1; " \
+            "SELECT * from COMPANY where ID=1;";
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sqlupdate.c_str(), Callback, (void*)data, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    } else { fprintf(stdout, "Operation done successfully\n"); }
 
-    // sqlite3_close(db);
+    sqlite3_close(db);
     return;
 }
 
@@ -172,11 +172,19 @@ UpdateAndRead(sqlite3 *db)
 {
     int rc;
     char *zErrMsg = 0;
-    std::printf("update and read threadid=%d, T1\n", gettid());
+    // sleep(2);
+    std::printf("update and read threadid=%ld, T1\n", gettid());
 
-    const std::string sqlupdateandread = \
-            "UPDATE COMPANY set SALARY=88888 where ID=1; " \
-            "SELECT * from COMPANY where ID=1;";
+    /**
+     * @brief sqlite3不会出问题
+     * update之后的读取都有问题
+     * 只能修bug
+     */
+    // const std::string sqlupdateandread = \
+    //         "UPDATE COMPANY set SALARY=88888 where ID=1; " \
+    //         "SELECT * from COMPANY where ID=1;";
+
+    const std::string sqlupdateandread = "UPDATE COMPANY set SALARY=88888 where ID=1;";
 
     /* Execute SQL statement */
     rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
@@ -191,17 +199,19 @@ UpdateAndRead(sqlite3 *db)
 void
 Update(sqlite3 *db)
 {
+    return;
     int rc;
     char *zErrMsg = 0;
-    std::printf("update threadid=%d, T2\n", gettid());
+    // sleep(4);
+    std::printf("update threadid=%ld, T2\n", gettid());
 
     const std::string sqlupdateandread = "UPDATE COMPANY set SALARY=66666 where ID=1;";
     
-    rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
-    if( rc != SQLITE_OK ){
-        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-        sqlite3_free(zErrMsg);
-    }
+    // rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
+    // if( rc != SQLITE_OK ){
+    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
+    //     sqlite3_free(zErrMsg);
+    // }
     return;
 }
 
@@ -224,8 +234,8 @@ VTable()
     // 到此为止数据库连接的实例显然是已经创建完成了
 
     // load 虚拟表
-    const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
-    // const std::string extpath = "/home/doubled/double_D/DB/CMU-15-445/Lab/debug/lib/libvtable.so";
+    // const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
+    const std::string extpath = "/home/doubled/double_D/DB/CMU-15-445/Lab/debug/lib/libvtable.so";
     rc = sqlite3_enable_load_extension(db, 1);
     // int sqlite3_load_extension(
     // sqlite3 *db,          /* Load the extension into this database connection */
@@ -275,17 +285,17 @@ VTable()
         sqlite3_free(zErrMsg);
     } else { fprintf(stdout, "Records created successfully\n"); }
 
-    // 再来一个读操作
-    /* Create SQL statement */
-    const std::string sqlselect = "SELECT * from COMPANY";
-    /* Execute SQL statement */
-    rc = sqlite3_exec(db, sqlselect.c_str(), Callback, (void*)data, &zErrMsg);
-    if( rc != SQLITE_OK ){
-        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-        sqlite3_free(zErrMsg);
-    }else{
-        fprintf(stdout, "Select Operation done successfully\n");
-    }
+    // // 再来一个读操作
+    // /* Create SQL statement */
+    // const std::string sqlselect = "SELECT * from COMPANY;";
+    // /* Execute SQL statement */
+    // rc = sqlite3_exec(db, sqlselect.c_str(), Callback, (void*)data, &zErrMsg);
+    // if( rc != SQLITE_OK ){
+    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
+    //     sqlite3_free(zErrMsg);
+    // }else{
+    //     fprintf(stdout, "Select Operation done successfully\n");
+    // }
 
     /**
      * @brief 准备测试一下并发
@@ -293,15 +303,24 @@ VTable()
      *  T2 写
      *  不加以控制 T1将得到错误的数据
      */
-    std::thread threads[2];
-    threads[0] = std::thread(UpdateAndRead, db);
-    threads[1] = std::thread(Update, db);
-    for (auto& t: threads) {t.join();}
+    // std::thread threads[2];
+    // threads[0] = std::thread(UpdateAndRead, db);
+    // threads[1] = std::thread(Update, db);
+    // for (auto& t: threads) {t.join();}
+
+    const std::string sqlupdateandread = "UPDATE COMPANY set SALARY=88888 where ID=1;";
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }
 
     // 最后再验证一下
     std::printf("last verify\n");
+    const std::string sqlselectone = "SELECT * from COMPANY;";
     /* Execute SQL statement */
-    rc = sqlite3_exec(db, sqlselect.c_str(), Callback, (void*)data, &zErrMsg);
+    rc = sqlite3_exec(db, sqlselectone.c_str(), Callback, (void*)data, &zErrMsg);
     if( rc != SQLITE_OK ){
         fprintf(stderr, "SQL error: %s\n", zErrMsg);
         sqlite3_free(zErrMsg);

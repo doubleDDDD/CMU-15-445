@@ -197,11 +197,6 @@ private:
     Index *index_ = nullptr;
 };
 
-
-
-
-
-
 class Cursor {
 public:
     Cursor(VirtualTable *virtual_table)
@@ -256,14 +251,20 @@ public:
     // is end of cursor(no more tuple)
     inline bool isEof() {
         if (is_index_scan_)
-        return offset_ == static_cast<int>(results.size());
+            return offset_ == static_cast<int>(results.size());
         else
-        return table_iterator_ == virtual_table_->end();
+            return table_iterator_ == virtual_table_->end();
     }
 
     // wrapper around poit scan methods
     inline void ScanKey(const Tuple &key) {
         virtual_table_->index_->ScanKey(key, results);
+    }
+
+    // debug
+    // if the func is inline, in gdb Cannot evaluate function -- may be inlined
+    inline TableIterator* GetTableIterator() {
+        return &table_iterator_;
     }
 
 private:

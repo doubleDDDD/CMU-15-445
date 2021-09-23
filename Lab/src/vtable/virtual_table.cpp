@@ -220,6 +220,7 @@ int VtabOpen(sqlite3_vtab *pVtab, sqlite3_vtab_cursor **ppCursor) {
   if (global_transaction_ == nullptr) {
     VtabBegin(pVtab);
   }
+  // 以下操作一定在事务中
   VirtualTable *virtual_table = reinterpret_cast<VirtualTable *>(pVtab);
   Cursor *cursor = new Cursor(virtual_table);
   *ppCursor = reinterpret_cast<sqlite3_vtab_cursor *>(cursor);
@@ -274,7 +275,9 @@ int VtabEof(sqlite3_vtab_cursor *cur) {
 
 int VtabColumn(sqlite3_vtab_cursor *cur, sqlite3_context *ctx, int i) {
   Cursor *cursor = reinterpret_cast<Cursor *>(cur);
+  cursor->GetTableIterator();  // 这里只有调用一次gdb的时候才可以访问，无实际意义
   Schema *schema = cursor->GetVirtualTable()->GetSchema();
+  cursor->GetVirtualTable()->GetTableHeap();  // 这里只有调用一次gdb的时候才可以访问，无实际意义
   // get column type and value
   TypeId type = schema->GetType(i);
   Value v = cursor->GetCurrentValue(schema, i);
@@ -354,6 +357,7 @@ int VtabUpdate(
         RID rid(sqlite3_value_int64(argv[0]));
         // for update, index always delete and insert
         // because you have no clue key has been updated or not
+        // 没有索引直接返回 
         table->DeleteEntry(rid);
         // if true, then update succeed, rid keep the same
         // else, delete & insert
