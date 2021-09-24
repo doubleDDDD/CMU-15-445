@@ -47,4 +47,5 @@ test:
 .PHONY:clean
 clean:
 	@$(RM) *.d *.o $(BIN)
+	@rm vtable.* *.db core
 	@echo clean done

@@ -35,6 +35,8 @@ class LockManager {
         // how many exclusive requests
         // 排它锁的request是先自增，再尝试获取锁，否则排队
         // 但是只要入队，排它锁请求exclusive_cnt需要自增
+        // 在这个设计里，只要rid被访问过，rid就会常驻，oldest也要跟着变化
+        // oldest指的是最小的事务id
         size_t exclusive_cnt = 0;
         txn_id_t oldest = -1;      // wait-die: txn older than `oldest`(<) can wait or die
         std::list<Request> list; // 锁表的list

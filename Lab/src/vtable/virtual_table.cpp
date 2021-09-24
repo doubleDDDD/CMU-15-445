@@ -214,28 +214,40 @@ int VtabDisconnect(sqlite3_vtab *pVtab) {
 }
 
 int VtabOpen(sqlite3_vtab *pVtab, sqlite3_vtab_cursor **ppCursor) {
-  // LOG_DEBUG("VtabOpen");
-  // if read operation, begin transaction here
-  std::printf("open vtable!\n");
-  if (global_transaction_ == nullptr) {
-    VtabBegin(pVtab);
-  }
-  // 以下操作一定在事务中
-  VirtualTable *virtual_table = reinterpret_cast<VirtualTable *>(pVtab);
-  Cursor *cursor = new Cursor(virtual_table);
-  *ppCursor = reinterpret_cast<sqlite3_vtab_cursor *>(cursor);
+    // LOG_DEBUG("VtabOpen");
+    // if read operation, begin transaction here
+    if (global_transaction_ == nullptr) {
+        VtabBegin(pVtab);
+    }
+    // 线程id与事务id都给一下
+    std::printf(
+        "Open vtable!,Tid=%d,tid=%d\n", 
+        static_cast<int>(global_transaction_->GetTransactionId()),
+        static_cast<int>(gettid()));
+    // 以下操作一定在事务中
+    VirtualTable *virtual_table = reinterpret_cast<VirtualTable *>(pVtab);
+    Cursor *cursor = new Cursor(virtual_table);
+    *ppCursor = reinterpret_cast<sqlite3_vtab_cursor *>(cursor);
 
-  return SQLITE_OK;
+    // 如果出错这里是要返回错误的啊，这全部无脑返回OK不行啊，检查一下事务的状态
+    if(global_transaction_->GetState() == TransactionState::ABORTED) {return SQLITE_ABORT;}
+    return SQLITE_OK;
 }
 
 int VtabClose(sqlite3_vtab_cursor *cur) {
-  std::printf("close vtable!\n");
-  // LOG_DEBUG("VtabClose");
-  Cursor *cursor = reinterpret_cast<Cursor *>(cur);
-  // if read operation, commit transaction here
-  VtabCommit(nullptr);
-  delete cursor;
-  return SQLITE_OK;
+    if(global_transaction_){
+        std::printf(
+            "Close vtable!,Tid=%d,tid=%d\n", 
+            static_cast<int>(global_transaction_->GetTransactionId()),
+            static_cast<int>(gettid()));
+    }
+
+    // LOG_DEBUG("VtabClose");
+    Cursor *cursor = reinterpret_cast<Cursor *>(cur);
+    // if read operation, commit transaction here
+    VtabCommit(nullptr);
+    delete cursor;
+    return SQLITE_OK;
 }
 
 /*
@@ -322,7 +334,7 @@ int VtabUpdate(
     sqlite_int64 *pRowid) 
 {
     // LOG_DEBUG("VtabUpdate");
-    std::printf("VtabUpdate\n");
+    std::printf("VtabUpdate, tid=%d\n", global_transaction_->GetTransactionId());
     VirtualTable *table = reinterpret_cast<VirtualTable *>(pVTab);
 
     // RID帮忙索引一个tuple所在的pageid与slotid
@@ -372,27 +384,43 @@ int VtabUpdate(
     return SQLITE_OK;
 }
 
+/**
+ * @brief 尝试保证事务T1先被执行
+ * @param  pVTab            desc
+ * @return int @c 
+ */
 int VtabBegin(sqlite3_vtab *pVTab) {
-  // LOG_DEBUG("VtabBegin");
-  // create new transaction(write operation will call this method)
-  global_transaction_ = storage_engine_->transaction_manager_->Begin();
-  return SQLITE_OK;
+    // LOG_DEBUG("VtabBegin");
+    // create new transaction(write operation will call this method)
+    global_transaction_ = storage_engine_->transaction_manager_->Begin();
+
+    std::printf(
+        "Begin vtable!,Tid=%d,tid=%d\n", 
+        static_cast<int>(global_transaction_->GetTransactionId()),
+        static_cast<int>(gettid()));
+    return SQLITE_OK;
 }
 
-int VtabCommit(sqlite3_vtab *pVTab) {
-  // LOG_DEBUG("VtabCommit");
-  auto transaction = GetTransaction();
-  if (transaction == nullptr)
-    return SQLITE_OK;
-  // get global txn manager
-  auto transaction_manager = storage_engine_->transaction_manager_;
-  // invoke transaction manager to commit(this txn can't fail)
-  transaction_manager->Commit(transaction);
-  // when commit, delete transaction pointer and set to null
-  delete transaction;
-  global_transaction_ = nullptr;
+int 
+VtabCommit(sqlite3_vtab *pVTab) {
+    // LOG_DEBUG("VtabCommit");
+    auto transaction = GetTransaction();
+    if (transaction == nullptr)
+        return SQLITE_OK;
+    
+    std::printf(
+        "Commit vtable!,Tid=%d,tid=%d\n", 
+        static_cast<int>(transaction->GetTransactionId()),
+        static_cast<int>(gettid()));
+    // get global txn manager
+    auto transaction_manager = storage_engine_->transaction_manager_;
+    // invoke transaction manager to commit(this txn can't fail)
+    transaction_manager->Commit(transaction);
+    // when commit, delete transaction pointer and set to null
+    delete transaction;
+    global_transaction_ = nullptr;
 
-  return SQLITE_OK;
+    return SQLITE_OK;
 }
 
 sqlite3_module VtableModule = {
@@ -632,6 +660,7 @@ Index *ConstructIndex(
     }
 }
 
+// 虚拟表的全局函数
 Transaction *GetTransaction() { return global_transaction_; }
 
 } // namespace cmudb

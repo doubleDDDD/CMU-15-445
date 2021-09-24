@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <thread>
 #include "buffer/lru_replacer.h"
 #include "catalog/schema.h"
 #include "concurrency/transaction_manager.h"
@@ -13,6 +16,8 @@
 #include "table/table_heap.h"
 #include "table/tuple.h"
 #include "type/value.h"
+
+#define gettid() syscall(__NR_gettid)
 
 namespace cmudb {
 /* Helpers */
@@ -97,7 +102,8 @@ public:
 
 StorageEngine *storage_engine_;
 // global transaction, sqlite does not support concurrent transaction
-Transaction *global_transaction_ = nullptr;
+// 怎么感觉这句话有问题啊，这个定义成每线程变量我觉得靠谱
+thread_local Transaction *global_transaction_ = nullptr;
 
 class VirtualTable {
     friend class Cursor;

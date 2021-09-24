@@ -40,6 +40,20 @@ bool LockManager::LockShared(Transaction *txn, const RID &rid)
         txn->GetTransactionId() > lock_table_[rid].oldest)
     {
       // wait die预防死锁
+    //   std::printf("id=%d,rid=%s,exclusive cnt=%d,oldest=%d,rid hold=%d\n", 
+    //     txn->GetTransactionId(),
+    //     rid.ToString().c_str(), 
+    //     static_cast<int>(lock_table_[rid].exclusive_cnt), 
+    //     static_cast<int>(lock_table_[rid].oldest),
+    //     static_cast<int>(lock_table_.count(rid)));
+    //   // 遍历一下 request list
+    //   if(lock_table_[rid].list.empty()){
+    //       std::printf("one waitting but list is empty!\n");
+    //   } else {
+    //     for(auto t=lock_table_[rid].list.begin(); t!=lock_table_[rid].list.end(); ++t){
+    //         std::printf("request txn id=%d\n", static_cast<int>(t->txn_id));
+    //     }
+    //   }
       txn->SetState(TransactionState::ABORTED);
       return false;
     }
@@ -206,6 +220,14 @@ bool LockManager::LockUpgrade(Transaction *txn, const RID &rid)
   // 必须位于2pl的加锁阶段
   assert(txn->GetState() == TransactionState::GROWING);
 
+  // 遍历下这个表验证一个想法
+//   for(auto it=lock_table_.begin(); it!=lock_table_.end();++it){
+//       std::printf("curr rid=%s,exclusive cnt=%d,oldest=%d\n", 
+//         it->first.ToString().c_str(), 
+//         static_cast<int>(it->second.exclusive_cnt), 
+//         static_cast<int>(it->second.oldest));
+//   }
+
   // 1. move cur request to the end of `shared` period
   // 2. change granted to false
   // 3. change lock mode to EXCLUSIVE
@@ -307,9 +329,25 @@ bool LockManager::Unlock(Transaction *txn, const RID &rid)
       if (exclusive)
       {
         // 先-1。这个就是一个统计数据
-        --lock_table_[rid].exclusive_cnt;
+        if(lock_table_[rid].exclusive_cnt>0){
+            --lock_table_[rid].exclusive_cnt;
+        } else {
+            lock_table_[rid].exclusive_cnt=0;
+        }
       }
-      lock_table_[rid].list.erase(it);  // 相当于delete 1
+      lock_table_[rid].list.erase(it);  // 相当于delete
+
+      txn_id_t oldest_txn_id = lock_table_[rid].oldest;
+      // 继续遍历list，选择最小的tid给到oldest
+      if(!lock_table_[rid].list.empty()){
+          for(auto it=lock_table_[rid].list.begin(); it!=lock_table_[rid].list.end(); ++it){
+              if(it->txn_id<=oldest_txn_id){
+                  lock_table_[rid].oldest=it->txn_id;
+              }
+          }
+      }else{
+          lock_table_[rid].oldest=-1;
+      }
 
       if (first || exclusive)
       {

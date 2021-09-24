@@ -180,11 +180,9 @@ UpdateAndRead(sqlite3 *db)
      * update之后的读取都有问题
      * 只能修bug
      */
-    // const std::string sqlupdateandread = \
-    //         "UPDATE COMPANY set SALARY=88888 where ID=1; " \
-    //         "SELECT * from COMPANY where ID=1;";
-
-    const std::string sqlupdateandread = "UPDATE COMPANY set SALARY=88888 where ID=1;";
+    const std::string sqlupdateandread = \
+            "UPDATE COMPANY set SALARY=88888 where ID=1; " \
+            "SELECT * from COMPANY where ID=1;";
 
     /* Execute SQL statement */
     rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
@@ -196,22 +194,24 @@ UpdateAndRead(sqlite3 *db)
     return;
 }
 
+/**
+ * @brief 如何保证T2在T1后启动呢
+ * @param  db               desc
+ */
 void
 Update(sqlite3 *db)
 {
-    return;
     int rc;
     char *zErrMsg = 0;
-    // sleep(4);
+    // sleep(1);
     std::printf("update threadid=%ld, T2\n", gettid());
 
     const std::string sqlupdateandread = "UPDATE COMPANY set SALARY=66666 where ID=1;";
-    
-    // rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
-    // if( rc != SQLITE_OK ){
-    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
-    //     sqlite3_free(zErrMsg);
-    // }
+    rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }
     return;
 }
 
@@ -234,8 +234,8 @@ VTable()
     // 到此为止数据库连接的实例显然是已经创建完成了
 
     // load 虚拟表
-    // const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
-    const std::string extpath = "/home/doubled/double_D/DB/CMU-15-445/Lab/debug/lib/libvtable.so";
+    const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
+    // const std::string extpath = "/home/doubled/double_D/DB/CMU-15-445/Lab/debug/lib/libvtable.so";
     rc = sqlite3_enable_load_extension(db, 1);
     // int sqlite3_load_extension(
     // sqlite3 *db,          /* Load the extension into this database connection */
@@ -303,18 +303,10 @@ VTable()
      *  T2 写
      *  不加以控制 T1将得到错误的数据
      */
-    // std::thread threads[2];
-    // threads[0] = std::thread(UpdateAndRead, db);
-    // threads[1] = std::thread(Update, db);
-    // for (auto& t: threads) {t.join();}
-
-    const std::string sqlupdateandread = "UPDATE COMPANY set SALARY=88888 where ID=1;";
-    /* Execute SQL statement */
-    rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
-    if( rc != SQLITE_OK ){
-        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-        sqlite3_free(zErrMsg);
-    }
+    std::thread threads[2];
+    threads[0] = std::thread(UpdateAndRead, db);
+    threads[1] = std::thread(Update, db);
+    for (auto& t: threads) {t.join();}
 
     // 最后再验证一下
     std::printf("last verify\n");
