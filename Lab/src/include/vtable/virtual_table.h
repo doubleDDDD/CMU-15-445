@@ -104,6 +104,7 @@ StorageEngine *storage_engine_;
 // global transaction, sqlite does not support concurrent transaction
 // 怎么感觉这句话有问题啊，这个定义成每线程变量我觉得靠谱
 thread_local Transaction *global_transaction_ = nullptr;
+std::mutex thread_mutex;
 
 class VirtualTable {
     friend class Cursor;

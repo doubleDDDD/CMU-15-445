@@ -167,23 +167,58 @@ RealTable()
     return;
 }
 
+bool T1Done = false;
+bool T2Done = false;
+
 void
-UpdateAndRead(sqlite3 *db)
+UpdateAndRead()
 {
+    sqlite3 *db;
     int rc;
     char *zErrMsg = 0;
-    // sleep(2);
+
+    // 尝试连接一下数据库
+    rc = sqlite3_open(":memory:", &db);
+    const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
+    rc = sqlite3_enable_load_extension(db, 1);
+    rc = sqlite3_load_extension(db, extpath.c_str(), NULL, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s, tid=%ld\n", zErrMsg, gettid());
+        sqlite3_free(zErrMsg);
+    }
+
+    // connect db with the vtable
+    const std::string sqlcreate = "CREATE VIRTUAL TABLE COMPANY " \
+        "USING vtable("\
+        "'ID int, "\
+        "NAME varchar(24), "\
+        "AGE int, "\
+        "ADDRESS varchar(48), "\
+        "SALARY int');";
+
+    /* Execute SQL statement */
+    // std::printf("sql is %s\n", sqlcreate.c_str());    
+    rc = sqlite3_exec(db, sqlcreate.c_str(), Callback, 0, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }
+
+    T1Done = true;
+    while(!(T2Done && T1Done)){}
     std::printf("update and read threadid=%ld, T1\n", gettid());
 
     /**
      * @brief sqlite3不会出问题
      * update之后的读取都有问题
-     * 只能修bug
+     * 这两句话为啥是两个事务，得限制成一个事务啊
      */
     const std::string sqlupdateandread = \
-            "UPDATE COMPANY set SALARY=88888 where ID=1; " \
-            "SELECT * from COMPANY where ID=1;";
-
+            "BEGIN; "\
+            "UPDATE COMPANY set SALARY=88888 where ID=1; "\
+            "UPDATE COMPANY set SALARY=66666 where ID=2; "\
+            "END;";
+    // const std::string sqlupdateandread = "UPDATE COMPANY set SALARY=88888 where ID=1;";
     /* Execute SQL statement */
     rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
     if( rc != SQLITE_OK ){
@@ -199,14 +234,49 @@ UpdateAndRead(sqlite3 *db)
  * @param  db               desc
  */
 void
-Update(sqlite3 *db)
+Update()
 {
+    sqlite3 *db;
     int rc;
     char *zErrMsg = 0;
-    // sleep(1);
+    // 怎么能让这两个数据库联系起来呢
+    // 为新线程创建一个新的数据库连接
+    // 虚拟表是与一个打开的数据库有关联的
+    rc = sqlite3_open(":memory:", &db);
+
+    const std::string extpath = "/root/CMU-15-445/Lab/debug/lib/libvtable.so";
+    rc = sqlite3_enable_load_extension(db, 1);
+    rc = sqlite3_load_extension(db, extpath.c_str(), NULL, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s, tid=%ld\n", zErrMsg, gettid());
+        sqlite3_free(zErrMsg);
+    }
+
+    // connect db with the vtable
+    const std::string sqlcreate = "CREATE VIRTUAL TABLE COMPANY " \
+        "USING vtable("\
+        "'ID int, "\
+        "NAME varchar(24), "\
+        "AGE int, "\
+        "ADDRESS varchar(48), "\
+        "SALARY int');";
+
+    T2Done = true;
+    while(!(T2Done && T1Done)){}
     std::printf("update threadid=%ld, T2\n", gettid());
 
-    const std::string sqlupdateandread = "UPDATE COMPANY set SALARY=66666 where ID=1;";
+    /* Execute SQL statement */
+    // std::printf("sql is %s\n", sqlcreate.c_str());    
+    rc = sqlite3_exec(db, sqlcreate.c_str(), Callback, 0, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }
+
+    const std::string sqlupdateandread = "BEGIN; "\
+        "SELECT * FROM COMPANY where ID=1; "\
+        "SELECT * FROM COMPANY where ID=2; "\
+        "END;";
     rc = sqlite3_exec(db, sqlupdateandread.c_str(), Callback, 0, &zErrMsg);
     if( rc != SQLITE_OK ){
         fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -226,7 +296,11 @@ VTable()
 
     // If the filename is ":memory:", then a private, temporary in-memory database is created for the connection
     // if( data.zDbFilename==0 ){ data.zDbFilename = ":memory:"; }
-    rc = sqlite3_open(":memory:", &db);
+    rc = sqlite3_open_v2(
+        ":memory:", 
+        &db, 
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX, 
+        NULL);
     if(rc){
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
         exit(0);
@@ -268,15 +342,17 @@ VTable()
     if( rc != SQLITE_OK ){
         fprintf(stderr, "SQL error: %s\n", zErrMsg);
         sqlite3_free(zErrMsg);
-    } else { fprintf(stdout, "Virtual table created successfully\n"); }
+    } else { fprintf(stdout, "Virtual table created successfully\n\n"); }
 
     // 执行insert
     /* Create SQL statement */
     const std::string sqlinsert = \
-            "INSERT INTO COMPANY VALUES(1, 'Paul', 32, 'California', 20000); " \
-            "INSERT INTO COMPANY VALUES(2, 'Allen', 25, 'Texas', 15000 ); "     \
-            "INSERT INTO COMPANY VALUES(3, 'Teddy', 23, 'Norway', 20000 ); " \
-            "INSERT INTO COMPANY VALUES(4, 'Mark', 25, 'Rich-Mond ', 65000 );";
+            "BEGIN; "\
+            "INSERT INTO COMPANY VALUES(1, 'Paul', 32, 'California', 20000); "\
+            "INSERT INTO COMPANY VALUES(2, 'Allen', 25, 'Texas', 15000 ); "\
+            "INSERT INTO COMPANY VALUES(3, 'Teddy', 23, 'Norway', 20000 ); "\
+            "INSERT INTO COMPANY VALUES(4, 'Mark', 25, 'Rich-Mond ', 65000 ); "\
+            "END;";
 
     /* Execute SQL statement */
     rc = sqlite3_exec(db, sqlinsert.c_str(), Callback, 0, &zErrMsg);
@@ -304,13 +380,13 @@ VTable()
      *  不加以控制 T1将得到错误的数据
      */
     std::thread threads[2];
-    threads[0] = std::thread(UpdateAndRead, db);
-    threads[1] = std::thread(Update, db);
+    threads[0] = std::thread(UpdateAndRead);
+    threads[1] = std::thread(Update);
     for (auto& t: threads) {t.join();}
 
     // 最后再验证一下
-    std::printf("last verify\n");
-    const std::string sqlselectone = "SELECT * from COMPANY;";
+    std::printf("\nlast verify\n");
+    const std::string sqlselectone = "BEGIN; SELECT * from COMPANY; END;";
     /* Execute SQL statement */
     rc = sqlite3_exec(db, sqlselectone.c_str(), Callback, (void*)data, &zErrMsg);
     if( rc != SQLITE_OK ){

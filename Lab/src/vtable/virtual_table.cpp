@@ -34,8 +34,8 @@ int VtabCreate(
     sqlite3_vtab **ppVtab, char **pzErr) 
 {
     // BackTracePlus();
-    std::printf("Create vtable!\n");
-    std::printf("\n");
+    std::printf(
+        "\nCreate vtable!,tid=%d\n\n", static_cast<int>(gettid()));
     /**
     * @brief 
     * storage_engine_ is a global var
@@ -61,6 +61,13 @@ int VtabCreate(
     schema_string = schema_string.substr(1, (schema_string.size() - 2));
     Schema *schema = ParseCreateStatement(schema_string);  // 根据字符串创建 schema 对象
 
+    // 如果对应的虚拟表存在，就按照connect来处理
+    if(header_page->TableExist(std::string(argv[2]))){
+        // std::printf("table %s has already exists!\n", std::string(argv[2]).c_str());
+        return VtabConnect(db, pAux, argc, argv, ppVtab, pzErr);
+        // return SQLITE_ERROR;
+    }
+
     // parse arg[4](string that defines table index)
     Index *index = nullptr;
     if (argc > 4) {
@@ -74,11 +81,6 @@ int VtabCreate(
         index = ConstructIndex(index_metadata, buffer_pool_manager);
     }
 
-    // 还是把检查拿到前面来处理
-    if(header_page->TableExist(std::string(argv[2]))){
-        std::printf("table %s has already exists!\n", std::string(argv[2]).c_str());
-        return SQLITE_ERROR;
-    }
     // create table object, allocate memory space
     VirtualTable *table = new VirtualTable(schema, buffer_pool_manager, lock_manager, log_manager, index);
     // insert table root page info into header page
@@ -110,9 +112,9 @@ int VtabConnect(
     sqlite3 *db, void *pAux, int argc, const char *const *argv,
     sqlite3_vtab **ppVtab, char **pzErr) 
 {
-    BackTracePlus();
-    std::printf("Connect vtable!\n");
-    std::printf("\n\n");
+    // BackTracePlus();
+    std::printf(
+        "\nConnect vtable!,tid=%d\n\n", static_cast<int>(gettid()));
 
     assert(argc >= 4);
     std::string schema_string(argv[3]);
@@ -245,7 +247,8 @@ int VtabClose(sqlite3_vtab_cursor *cur) {
     // LOG_DEBUG("VtabClose");
     Cursor *cursor = reinterpret_cast<Cursor *>(cur);
     // if read operation, commit transaction here
-    VtabCommit(nullptr);
+    // 这里提交事务的话，是个分号就要提交事务，不太合理啊
+    // VtabCommit(nullptr);
     delete cursor;
     return SQLITE_OK;
 }
@@ -395,9 +398,12 @@ int VtabBegin(sqlite3_vtab *pVTab) {
     global_transaction_ = storage_engine_->transaction_manager_->Begin();
 
     std::printf(
-        "Begin vtable!,Tid=%d,tid=%d\n", 
+        "\nBegin vtable!,Tid=%d,tid=%d\n\n", 
         static_cast<int>(global_transaction_->GetTransactionId()),
         static_cast<int>(gettid()));
+    // std::printf("\n");
+    // BackTracePlus();
+    // std::printf("\n");
     return SQLITE_OK;
 }
 
@@ -409,9 +415,12 @@ VtabCommit(sqlite3_vtab *pVTab) {
         return SQLITE_OK;
     
     std::printf(
-        "Commit vtable!,Tid=%d,tid=%d\n", 
+        "\nCommit vtable!,Tid=%d,tid=%d\n\n", 
         static_cast<int>(transaction->GetTransactionId()),
-        static_cast<int>(gettid()));
+        static_cast<int>(gettid()));    
+    // std::printf("\n");
+    // BackTracePlus();
+    // std::printf("\n");
     // get global txn manager
     auto transaction_manager = storage_engine_->transaction_manager_;
     // invoke transaction manager to commit(this txn can't fail)
@@ -449,18 +458,34 @@ sqlite3_module VtableModule = {
     0,              /* xRollbackTo */
 };
 
-/* start in extension */
+/* start in extension, 调用的时候尝试保证一下线程安全 */
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
 extern "C" int sqlite3_vtable_init(sqlite3 *db, char **pzErrMsg,
                                        const sqlite3_api_routines *pApi) {
+    std::lock_guard<std::mutex> guard(thread_mutex);
+
     SQLITE_EXTENSION_INIT2(pApi);
     /* 该数据库的存储形式是一个文件，文件名vtable.db */
     std::string db_file_name = "vtable.db";
     struct stat buffer;  /* stat命令检查文件是否存在 */
     bool is_file_exist = (stat(db_file_name.c_str(), &buffer) == 0);
     std::printf("Prepare to init vtable in load!\n");
+
+    /**
+     * @brief Construct a new if object
+     * 如果模块已经被创建了
+     * 则应该直接复用
+     * 针对当前的数据库连接db,创建模块vtable，这个模块需要再connect一个虚拟表
+     * 就可以正常工作了
+     */
+    if(storage_engine_){
+        int rc = sqlite3_create_module(
+            db, "vtable", &VtableModule, nullptr);
+        return rc;
+    }
+
     /**
      * @brief init storage engine
      */
@@ -472,7 +497,6 @@ extern "C" int sqlite3_vtable_init(sqlite3 *db, char **pzErrMsg,
         std::printf("file is not exist!\n");
         page_id_t header_page_id;
         // 从free_list中取一个page到hash_table,ref++ 
-        // Page* firstpage = 
         storage_engine_->buffer_pool_manager_->NewPage(header_page_id);
         assert(header_page_id == HEADER_PAGE_ID);
         // 把这个page设置为脏然后刷下去

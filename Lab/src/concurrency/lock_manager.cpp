@@ -268,7 +268,9 @@ bool LockManager::LockUpgrade(Transaction *txn, const RID &rid)
 
   // 等地啊条件变量
   cond.wait(latch, [&]() -> bool {
-    return lock_table_[rid].list.front().txn_id == txn->GetTransactionId();
+      // check一下为什么线程会卡在这个地方
+      std::printf("txn id=%d, rid=%s\n", static_cast<int>(txn->GetTransactionId()), rid.ToString().c_str());
+      return lock_table_[rid].list.front().txn_id == txn->GetTransactionId();
   });
 
   assert(lock_table_[rid].list.front().txn_id == txn->GetTransactionId() &&
