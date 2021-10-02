@@ -18,6 +18,8 @@
 #include "common/rid.h"
 #include "concurrency/transaction.h"
 
+#define LOCK_TIME_OUT 1000
+
 namespace cmudb {
 
 enum class LockMode { SHARED = 0, EXCLUSIVE };

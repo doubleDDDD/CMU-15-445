@@ -10,6 +10,10 @@
 #include <chrono>
 #include <cstdint>
 
+#include <sys/syscall.h>
+#include <unistd.h>
+#define gettid() syscall(__NR_gettid)
+
 namespace cmudb {
 
 // std::chrono 是 c++ 的日期与时间库 类似于 std::time

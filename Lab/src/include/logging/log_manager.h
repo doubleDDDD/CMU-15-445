@@ -9,11 +9,12 @@
 #include <algorithm>
 #include <condition_variable>
 #include <future>
+#include <chrono>
 #include <mutex>
 #include "disk/disk_manager.h"
 #include "logging/log_record.h"
 
-#define FORBIDLOG
+// #define FORBIDLOG
 
 namespace cmudb {
 

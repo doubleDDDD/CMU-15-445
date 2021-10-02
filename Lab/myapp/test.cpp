@@ -369,9 +369,9 @@ VTable()
     // if( rc != SQLITE_OK ){
     //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
     //     sqlite3_free(zErrMsg);
-    // }else{
-    //     fprintf(stdout, "Select Operation done successfully\n");
-    // }
+    // }else { fprintf(stdout, "Select Operation done successfully\n"); }
+    // sqlite3_close(db);
+    // return;
 
     /**
      * @brief 准备测试一下并发

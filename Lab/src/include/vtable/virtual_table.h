@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include <sys/syscall.h>
-#include <unistd.h>
 #include <thread>
 #include "buffer/lru_replacer.h"
 #include "catalog/schema.h"
@@ -16,8 +14,6 @@
 #include "table/table_heap.h"
 #include "table/tuple.h"
 #include "type/value.h"
-
-#define gettid() syscall(__NR_gettid)
 
 namespace cmudb {
 /* Helpers */

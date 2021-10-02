@@ -1,5 +1,7 @@
 /**
  * lock_manager.cpp
+ * 增加支持超时功能，如果超时，则直接返回false
+ * 条件变量有wait_for与wait_until等接口
  */
 
 #include <cassert>
@@ -17,84 +19,104 @@ namespace cmudb
  */
 bool LockManager::LockShared(Transaction *txn, const RID &rid)
 {
-  std::unique_lock<std::mutex> latch(mutex_);
-  if (txn->GetState() == TransactionState::ABORTED)
-  {
-    return false;
-  }
+    std::unique_lock<std::mutex> latch(mutex_);
+    // std::printf(
+    //     "LockShared tid=%ld, txn=%d\n", gettid(), static_cast<int>(txn->GetTransactionId()));
+    if (txn->GetState() == TransactionState::ABORTED) { return false; }
 
-  assert(txn->GetState() == TransactionState::GROWING);
+    assert(txn->GetState() == TransactionState::GROWING);
 
-  Request req{txn->GetTransactionId(), LockMode::SHARED, false};
-  if (lock_table_.count(rid) == 0)
-  {
-    // 当前没有其它事务持有该rid的锁，所以下面的在条件变量上的等待是一定可以过的
-    lock_table_[rid].exclusive_cnt = 0;
-    lock_table_[rid].oldest = txn->GetTransactionId();
-    lock_table_[rid].list.push_back(req);
-  }
-  else
-  {
-    // 目前有事务等待在rid上（或读或写）
-    if (lock_table_[rid].exclusive_cnt != 0 &&
-        txn->GetTransactionId() > lock_table_[rid].oldest)
+    Request req{txn->GetTransactionId(), LockMode::SHARED, false};
+    if (lock_table_.count(rid) == 0)
     {
-      // wait die预防死锁
-    //   std::printf("id=%d,rid=%s,exclusive cnt=%d,oldest=%d,rid hold=%d\n", 
-    //     txn->GetTransactionId(),
-    //     rid.ToString().c_str(), 
-    //     static_cast<int>(lock_table_[rid].exclusive_cnt), 
-    //     static_cast<int>(lock_table_[rid].oldest),
-    //     static_cast<int>(lock_table_.count(rid)));
-    //   // 遍历一下 request list
-    //   if(lock_table_[rid].list.empty()){
-    //       std::printf("one waitting but list is empty!\n");
-    //   } else {
-    //     for(auto t=lock_table_[rid].list.begin(); t!=lock_table_[rid].list.end(); ++t){
-    //         std::printf("request txn id=%d\n", static_cast<int>(t->txn_id));
-    //     }
-    //   }
-      txn->SetState(TransactionState::ABORTED);
-      return false;
+        // 当前没有其它事务持有该rid的锁，所以下面的在条件变量上的等待是一定可以过的
+        lock_table_[rid].exclusive_cnt = 0;
+        lock_table_[rid].oldest = txn->GetTransactionId();
+        lock_table_[rid].list.push_back(req);
     }
-    if (lock_table_[rid].oldest > txn->GetTransactionId())
+    else
     {
-      lock_table_[rid].oldest = txn->GetTransactionId();
-    }
-    lock_table_[rid].list.push_back(req);
-  }
-
-  // 等待条件变量，等待直到获取读锁
-  // 如果所有阻塞在rid上的事务都是读事务且都获得了授权，则当前线程继续进入读取
-  Request *cur = nullptr;
-  cond.wait(latch, [&]() -> bool {
-    bool all_shared = true, all_granted = true;
-    for (auto &r : lock_table_[rid].list)
-    {
-      if (r.txn_id != txn->GetTransactionId())
-      {
-        if (r.mode != LockMode::SHARED || !r.granted)
+        // 目前有事务等待在rid上（或读或写）
+        // 如果都是读则不会相互等待的，读锁都是共享的，所以都是共享锁是不会有死锁的
+        // if (lock_table_[rid].exclusive_cnt != 0 &&
+        //     txn->GetTransactionId() > lock_table_[rid].oldest)
+        if (lock_table_[rid].oldest>=0 && txn->GetTransactionId() > lock_table_[rid].oldest)
         {
-          return false;
+            // // wait die预防死锁
+            // std::printf("id=%d,rid=%s,exclusive cnt=%d,oldest=%d,rid hold=%d\n", 
+            //     txn->GetTransactionId(),
+            //     rid.ToString().c_str(), 
+            //     static_cast<int>(lock_table_[rid].exclusive_cnt), 
+            //     static_cast<int>(lock_table_[rid].oldest),
+            //     static_cast<int>(lock_table_.count(rid)));
+            // // 遍历一下 request list
+            // if(lock_table_[rid].list.empty()){
+            //     std::printf("one waitting but list is empty!\n");
+            // } else {
+            //     for(auto t=lock_table_[rid].list.begin(); t!=lock_table_[rid].list.end(); ++t){
+            //         std::printf("request txn id=%d\n", static_cast<int>(t->txn_id));
+            //     }
+            // }
+            txn->SetState(TransactionState::ABORTED);
+            return false;
         }
-      }
-      else
-      {
-        // 本身是被push到最后的，所以最后一个一定是新的
-        cur = &r;
-        return all_shared && all_granted;
-      }
+        if (lock_table_[rid].oldest > txn->GetTransactionId())
+        {
+            lock_table_[rid].oldest = txn->GetTransactionId();
+        }
+        lock_table_[rid].list.push_back(req);
     }
-    return false;
-  });
 
-  // 得到了读锁
-  assert(cur != nullptr && cur->txn_id == txn->GetTransactionId());
-  cur->granted = true;
-  txn->GetSharedLockSet()->insert(rid);  // 事务要维护一个set, track当前事务所加读锁的rid
+    // 等待条件变量，等待直到获取读锁
+    // 如果所有阻塞在rid上的事务都是读事务且都获得了授权，则当前线程继续进入读取
+    Request *cur = nullptr;
+    // cond.wait(latch, [&]() -> bool {
+    //     bool all_shared = true, all_granted = true;
+    //     for (auto &r : lock_table_[rid].list)
+    //     {
+    //         if (r.txn_id != txn->GetTransactionId()){
+    //             if (r.mode != LockMode::SHARED || !r.granted) { return false; }
+    //         }
+    //         else{
+    //             // 本身是被push到最后的，所以最后一个一定是新的
+    //             cur = &r;
+    //             return all_shared && all_granted;
+    //         }
+    //     }
+    //     return false;
+    // });
 
-  cond.notify_all();
-  return true;
+    auto func = [&]() -> bool {
+        bool all_shared = true, all_granted = true;
+        for (auto &r : lock_table_[rid].list)
+        {
+            if (r.txn_id != txn->GetTransactionId()){
+                if (r.mode != LockMode::SHARED || !r.granted) { return false; }
+            }
+            else{
+                // 本身是被push到最后的，所以最后一个一定是新的
+                cur = &r;
+                return all_shared && all_granted;
+            }
+        }
+        return false;
+    };
+
+    bool _cond = !(func());
+    while(_cond){
+        if(cond.wait_for(latch, std::chrono::milliseconds(LOCK_TIME_OUT))==std::cv_status::timeout){
+            txn->SetState(TransactionState::ABORTED);
+            return false;
+        }
+    }
+
+    // 得到了读锁
+    assert(cur != nullptr && cur->txn_id == txn->GetTransactionId());
+    cur->granted = true;
+    txn->GetSharedLockSet()->insert(rid);  // 事务要维护一个set, track当前事务所加读锁的rid
+
+    cond.notify_all();
+    return true;
 }
 
 /**
@@ -106,64 +128,73 @@ bool LockManager::LockShared(Transaction *txn, const RID &rid)
  */
 bool LockManager::LockExclusive(Transaction *txn, const RID &rid)
 {
-  std::unique_lock<std::mutex> latch(mutex_);
-  if (txn->GetState() == TransactionState::ABORTED)
-  {
-    return false;
-  }
+    std::unique_lock<std::mutex> latch(mutex_);
+    // std::printf(
+    //     "LockExclusive tid=%ld, txn=%d\n", gettid(), static_cast<int>(txn->GetTransactionId()));
+    if (txn->GetState() == TransactionState::ABORTED) { return false; }
 
-  // 2PL锁只能在GROWING阶段加锁
-  assert(txn->GetState() == TransactionState::GROWING);
+    // 2PL锁只能在GROWING阶段加锁
+    assert(txn->GetState() == TransactionState::GROWING);
 
-  // 构造请求
-  Request req{txn->GetTransactionId(), LockMode::EXCLUSIVE, false};
-  if (lock_table_.count(rid) == 0)
-  {
-    // 还没有事务碰过这个rid
-    lock_table_[rid].oldest = txn->GetTransactionId();
-    lock_table_[rid].list.push_back(req);
-  }
-  else
-  {
-    // wait die 是一种非剥夺策略，老的事务等待新的事务释放资源
-    // 即若A比B老，则等待B执行结束，否则A卷回(roll-back)
-    // 一段时间后会以原先的时间戳继续申请。老的才有资格等，年轻的全部卷回
-    // ...
-    // 假设事务 T5、T10、T15 分别具有时间戳 5、10 和 15
-    // 如果 T5 请求 T10 持有的数据项，则 T5 将等待
-    // 如果 T15 请求 T10 持有的数据项，则 T15 将被杀死(死亡)
-    // wait die 为什么能否防止环的出现呢
-    // 如果Ti等待Tj释放锁，记录为 Ti->Tj, wait die只允许Ti等待Tj，且i<j(或j<i)。反正一定是单边的，绝对不可能形成环
-    if (txn->GetTransactionId() > lock_table_[rid].oldest)
+    // 构造请求
+    Request req{txn->GetTransactionId(), LockMode::EXCLUSIVE, false};
+    if (lock_table_.count(rid) == 0)
     {
-      // 从根源上杜绝了环的出现，但是也abort了一些无需abort的事务，在性能上有损失 
-      txn->SetState(TransactionState::ABORTED);
-      return false;
+        // 还没有事务碰过这个rid
+        lock_table_[rid].oldest = txn->GetTransactionId();
+        lock_table_[rid].list.push_back(req);
+    }
+    else
+    {
+        // wait die 是一种非剥夺策略，老的事务等待新的事务释放资源
+        // 即若A比B老，则等待B执行结束，否则A卷回(roll-back)
+        // 一段时间后会以原先的时间戳继续申请。老的才有资格等，年轻的全部卷回
+        // ...
+        // 假设事务 T5、T10、T15 分别具有时间戳 5、10 和 15
+        // 如果 T5 请求 T10 持有的数据项，则 T5 将等待
+        // 如果 T15 请求 T10 持有的数据项，则 T15 将被杀死(死亡)
+        // wait die 为什么能否防止环的出现呢
+        // 如果Ti等待Tj释放锁，记录为 Ti->Tj, wait die只允许Ti等待Tj，且i<j(或j<i)。反正一定是单边的，绝对不可能形成环
+        if (lock_table_[rid].oldest>=0 && txn->GetTransactionId() > lock_table_[rid].oldest)
+        {
+            // 从根源上杜绝了环的出现，但是也abort了一些无需abort的事务，在性能上有损失 
+            txn->SetState(TransactionState::ABORTED);
+            return false;
+        }
+
+        // 否则就wait
+        lock_table_[rid].oldest = txn->GetTransactionId();
+        lock_table_[rid].list.push_back(req);
     }
 
-    // 否则就wait
-    lock_table_[rid].oldest = txn->GetTransactionId();
-    lock_table_[rid].list.push_back(req);
-  }
+    ++lock_table_[rid].exclusive_cnt;  // 目标rid如果是第一次被访问并加锁，那就是从0到1
 
-  ++lock_table_[rid].exclusive_cnt;  // 目标rid如果是第一次被访问并加锁，那就是从0到1
+    // 排它锁只有在等待队列中的第一个才能获得锁
+    // 首先下面的语句等价于
+    // while(lock_table_[rid].list.front().txn_id == txn->GetTransactionId()){
+    //     cond.wait(latch);
+    // }
+    // 如果当前的rid被其它事务加了排它锁，那么当前事务（线程）只能等待，事务（线程）等待在锁管理器的代码上
+    // cond.wait_for(
+    //     latch, std::chrono::milliseconds(500), 
+    //     [&]() -> bool {
+    //         return lock_table_[rid].list.front().txn_id == txn->GetTransactionId();
+    //     }
+    // );
 
-  // 排它锁只有在等待队列中的第一个才能获得锁
-  // 首先下面的语句等价于
-  // while(lock_table_[rid].list.front().txn_id == txn->GetTransactionId()){
-  //     cond.wait(latch);
-  // }
-  // 如果当前的rid被其它事务加了排它锁，那么当前事务（线程）只能等待，事务（线程）等待在锁管理器的代码上
-  cond.wait(latch, [&]() -> bool {
-    return lock_table_[rid].list.front().txn_id == txn->GetTransactionId();
-  });
+    bool _cond = !(lock_table_[rid].list.front().txn_id == txn->GetTransactionId());
+    while(_cond){
+        if(cond.wait_for(latch, std::chrono::milliseconds(LOCK_TIME_OUT))==std::cv_status::timeout){
+            txn->SetState(TransactionState::ABORTED);
+            return false;
+        }
+    }
 
-  assert(lock_table_[rid].list.front().txn_id == txn->GetTransactionId());
-
-  // 成功得到锁，被授权，返回true，代表成功获取到锁
-  lock_table_[rid].list.front().granted = true;
-  txn->GetExclusiveLockSet()->insert(rid);
-  return true;
+    assert(lock_table_[rid].list.front().txn_id == txn->GetTransactionId());
+    // 成功得到锁，被授权，返回true，代表成功获取到锁
+    lock_table_[rid].list.front().granted = true;
+    txn->GetExclusiveLockSet()->insert(rid);
+    return true;
 }
 
 /**
@@ -211,76 +242,83 @@ bool LockManager::LockExclusive(Transaction *txn, const RID &rid)
  */
 bool LockManager::LockUpgrade(Transaction *txn, const RID &rid)
 {
-  std::unique_lock<std::mutex> latch(mutex_);
-  if (txn->GetState() == TransactionState::ABORTED)
-  {
-    return false;
-  }
+    std::unique_lock<std::mutex> latch(mutex_);
+    // std::printf(
+    //     "LockUpgrade tid=%ld, txn=%d\n", gettid(), static_cast<int>(txn->GetTransactionId()));
+    if (txn->GetState() == TransactionState::ABORTED) { return false; }
 
-  // 必须位于2pl的加锁阶段
-  assert(txn->GetState() == TransactionState::GROWING);
+    // 必须位于2pl的加锁阶段
+    assert(txn->GetState() == TransactionState::GROWING);
 
-  // 遍历下这个表验证一个想法
-//   for(auto it=lock_table_.begin(); it!=lock_table_.end();++it){
-//       std::printf("curr rid=%s,exclusive cnt=%d,oldest=%d\n", 
-//         it->first.ToString().c_str(), 
-//         static_cast<int>(it->second.exclusive_cnt), 
-//         static_cast<int>(it->second.oldest));
-//   }
+    // // 遍历下这个表验证一个想法
+    // for(auto it=lock_table_.begin(); it!=lock_table_.end();++it){
+    //     std::printf("curr rid=%s,exclusive cnt=%d,oldest=%d\n", 
+    //     it->first.ToString().c_str(), 
+    //     static_cast<int>(it->second.exclusive_cnt), 
+    //     static_cast<int>(it->second.oldest));
+    // }
 
-  // 1. move cur request to the end of `shared` period
-  // 2. change granted to false
-  // 3. change lock mode to EXCLUSIVE
-  auto src = lock_table_[rid].list.end(), tgt = src;
-  for (auto it = lock_table_[rid].list.begin();
-       it != lock_table_[rid].list.end(); ++it)
-  {
-    if (it->txn_id == txn->GetTransactionId())
+    // 1. move cur request to the end of `shared` period
+    // 2. change granted to false
+    // 3. change lock mode to EXCLUSIVE
+    auto src = lock_table_[rid].list.end(), tgt = src;
+    for (auto it = lock_table_[rid].list.begin();
+        it != lock_table_[rid].list.end(); ++it)
     {
-      src = it;
+        if (it->txn_id == txn->GetTransactionId()) { src = it; }
+        if (src != lock_table_[rid].list.end())
+        {
+            if (it->mode == LockMode::EXCLUSIVE)
+            {
+                // 共享锁升级为排它锁
+                tgt = it;
+                break;
+            }
+        }
     }
-    if (src != lock_table_[rid].list.end())
+    assert(src != lock_table_[rid].list.end());
+
+    // wait-die
+    for (auto it = lock_table_[rid].list.begin(); it != tgt; ++it)
     {
-      if (it->mode == LockMode::EXCLUSIVE)
-      {
-        tgt = it;
-        break;
-      }
+        if (it->txn_id < src->txn_id) { return false; }
     }
-  }
-  assert(src != lock_table_[rid].list.end());
 
-  // wie-die
-  for (auto it = lock_table_[rid].list.begin(); it != tgt; ++it)
-  {
-    if (it->txn_id < src->txn_id)
-    {
-      return false;
+    Request req = *src;
+    req.granted = false;
+    req.mode = LockMode::EXCLUSIVE;
+
+    lock_table_[rid].list.insert(tgt, req);
+    lock_table_[rid].list.erase(src);
+
+    ++lock_table_[rid].exclusive_cnt;
+
+    // // 条件变量
+    // if(cond.wait_for(latch, [&]() -> bool {
+    //     // check一下为什么线程会卡在这个地方
+    //     std::printf("txn id=%d, rid=%s\n", static_cast<int>(txn->GetTransactionId()), rid.ToString().c_str());
+    //     return lock_table_[rid].list.front().txn_id == txn->GetTransactionId();
+    // })==std::cv_status::timeout){
+    //     return false;
+    // }
+
+    bool _cond = !(lock_table_[rid].list.front().txn_id == txn->GetTransactionId());
+    while(_cond){
+        if(cond.wait_for(latch, std::chrono::milliseconds(LOCK_TIME_OUT))==std::cv_status::timeout){
+            txn->SetState(TransactionState::ABORTED);
+            return false;
+        }
     }
-  }
 
-  Request req = *src;
-  req.granted = false;
-  req.mode = LockMode::EXCLUSIVE;
+    assert(lock_table_[rid].list.front().txn_id == txn->GetTransactionId() &&
+            lock_table_[rid].list.front().mode == LockMode::EXCLUSIVE);
 
-  lock_table_[rid].list.insert(tgt, req);
-  lock_table_[rid].list.erase(src);
+    lock_table_[rid].list.front().granted = true;
 
-  // 等地啊条件变量
-  cond.wait(latch, [&]() -> bool {
-      // check一下为什么线程会卡在这个地方
-      std::printf("txn id=%d, rid=%s\n", static_cast<int>(txn->GetTransactionId()), rid.ToString().c_str());
-      return lock_table_[rid].list.front().txn_id == txn->GetTransactionId();
-  });
-
-  assert(lock_table_[rid].list.front().txn_id == txn->GetTransactionId() &&
-         lock_table_[rid].list.front().mode == LockMode::EXCLUSIVE);
-
-  lock_table_[rid].list.front().granted = true;
-
-  txn->GetSharedLockSet()->erase(rid);
-  txn->GetExclusiveLockSet()->insert(rid);
-  return true;
+    // 共享锁升级为排它锁
+    txn->GetSharedLockSet()->erase(rid);
+    txn->GetExclusiveLockSet()->insert(rid);
+    return true;
 }
 
 /**
