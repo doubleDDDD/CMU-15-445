@@ -372,8 +372,7 @@ int VtabUpdate(
         RID rid(sqlite3_value_int64(argv[0]));
         // for update, index always delete and insert
         // because you have no clue key has been updated or not
-        // 没有索引直接返回 
-        table->DeleteEntry(rid);
+        table->DeleteEntry(rid);  // 没有索引直接返回 
         // if true, then update succeed, rid keep the same
         // else, delete & insert
         // tuple与rid都是新构建的

@@ -66,6 +66,7 @@ public:
     // release the lock hold by the txn
     bool Unlock(Transaction *txn, const RID &rid);
     /*** END OF APIs ***/
+    void ToString();
 
 private:
     bool strict_2PL_;  // 进一步限制的锁可以被释放的时机

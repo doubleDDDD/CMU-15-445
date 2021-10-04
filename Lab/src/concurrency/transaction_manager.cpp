@@ -36,6 +36,7 @@ void TransactionManager::Commit(Transaction *txn) {
         auto table = item.table_;
         if (item.wtype_ == WType::DELETE) {
             // this also release the lock when holding the page latch
+            std::printf("rid=%s, txn=%d\n", item.rid_.ToString().c_str(), static_cast<int>(txn->GetTransactionId()));
             table->ApplyDelete(item.rid_, txn);
         }
         write_set->pop_back();

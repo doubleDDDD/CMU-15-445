@@ -400,4 +400,16 @@ bool LockManager::Unlock(Transaction *txn, const RID &rid)
   return true;
 }
 
+void
+LockManager::ToString(){
+    std::printf("num=%d\n", static_cast<int>(lock_table_.size()));
+    for(auto iter=lock_table_.begin();iter!=lock_table_.end();++iter){
+        std::printf("%s\n", iter->first.ToString().c_str());
+        if(iter->second.list.empty()){continue;}
+        for(auto _iter=iter->second.list.begin();_iter!=iter->second.list.end();++_iter){
+            std::printf("txnid=%d\n", static_cast<int>(_iter->txn_id));
+        }
+    }
+    return;
+}
 } // namespace cmudb

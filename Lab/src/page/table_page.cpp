@@ -304,6 +304,8 @@ void TablePage::ApplyDelete(const RID &rid, Transaction *txn,
   delete_tuple.allocated_ = true;
 
   if (ENABLE_LOGGING) {
+    // BackTracePlus();
+    // std::printf("txn id is %d\n", txn->GetTransactionId());
     // must already grab the exclusive lock
     assert(txn->GetExclusiveLockSet()->find(rid) !=
         txn->GetExclusiveLockSet()->end());

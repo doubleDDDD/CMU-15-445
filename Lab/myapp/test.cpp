@@ -204,8 +204,8 @@ UpdateAndRead()
         sqlite3_free(zErrMsg);
     }
 
-    T1Done = true;
-    while(!(T2Done && T1Done)){}
+    // T1Done = true;
+    // while(!(T2Done && T1Done)){}
     std::printf("update and read threadid=%ld, T1\n", gettid());
 
     /**
@@ -236,6 +236,7 @@ UpdateAndRead()
 void
 Update()
 {
+    return;
     sqlite3 *db;
     int rc;
     char *zErrMsg = 0;
@@ -362,14 +363,14 @@ VTable()
     } else { fprintf(stdout, "Records created successfully\n"); }
 
     // // 再来一个读操作
-    // /* Create SQL statement */
-    // const std::string sqlselect = "SELECT * from COMPANY;";
-    // /* Execute SQL statement */
-    // rc = sqlite3_exec(db, sqlselect.c_str(), Callback, (void*)data, &zErrMsg);
-    // if( rc != SQLITE_OK ){
-    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
-    //     sqlite3_free(zErrMsg);
-    // }else { fprintf(stdout, "Select Operation done successfully\n"); }
+    /* Create SQL statement */
+    const std::string sqlselect = "BEGIN; SELECT * from COMPANY; END;";
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sqlselect.c_str(), Callback, (void*)data, &zErrMsg);
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }else { fprintf(stdout, "Select Operation done successfully\n"); }
     // sqlite3_close(db);
     // return;
 
